@@ -6316,15 +6316,6 @@ static int wsgi_execute_script(request_rec *r)
         return HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    /* Calculate the Python module name to be used for script. */
-
-    if (config->handler_script && *config->handler_script)
-        script = config->handler_script;
-    else
-        script = r->filename;
-
-    name = wsgi_module_name(r->pool, script);
-
     /*
      * Use a lock around the check to see if the module is
      * already loaded and the import of the module to prevent
@@ -6338,71 +6329,117 @@ static int wsgi_execute_script(request_rec *r)
     Py_END_ALLOW_THREADS
 #endif
 
-    modules = PyImport_GetModuleDict();
-    module = PyDict_GetItemString(modules, name);
+    /* Calculate the Python module name to be used for script. */
 
-    Py_XINCREF(module);
+    if (config->handler_script && *config->handler_script) {
+        script = config->handler_script;
 
-    if (module)
-        exists = 1;
+        /*
+         * Check for whether a module reference is provided
+         * as opposed to a filesystem path.
+         */
 
-    /*
-     * If script reloading is enabled and the module for it has
-     * previously been loaded, see if it has been modified since
-     * the last time it was accessed. For a handler script will
-     * also see if it contains a custom function for determining
-     * if a reload should be performed.
-     */
+        if (strstr(script, "module:") == script) {
+            name = script + 7;
 
-    if (module && config->script_reloading) {
-        if (wsgi_reload_required(r->pool, r, script, module, r->filename)) {
-            /*
-             * Script file has changed. Discard reference to
-             * loaded module and work out what action we are
-             * supposed to take. Choices are process reloading
-             * and module reloading. Process reloading cannot be
-             * performed unless a daemon process is being used.
-             */
+            module = PyImport_ImportModule(name);
 
-            Py_DECREF(module);
-            module = NULL;
-
-#if defined(MOD_WSGI_WITH_DAEMONS)
-            if (*config->process_group) {
-                /*
-                 * Need to restart the daemon process. We bail
-                 * out on the request process here, sending back
-                 * a special response header indicating that
-                 * process is being restarted and that remote
-                 * end should abandon connection and attempt to
-                 * reconnect again. We also need to signal this
-                 * process so it will actually shutdown. The
-                 * process supervisor code will ensure that it
-                 * is restarted.
-                 */
-
+            if (!module) {
                 Py_BEGIN_ALLOW_THREADS
-                ap_log_rerror(APLOG_MARK, WSGI_LOG_INFO(0), r,
-                             "mod_wsgi (pid=%d): Force restart of "
-                             "process '%s'.", getpid(),
-                             config->process_group);
+                ap_log_rerror(APLOG_MARK, WSGI_LOG_ERR(0), r,
+                             "mod_wsgi (pid=%d): Failed to import handler "
+                             "via Python module reference %s.", getpid(),
+                             name);
                 Py_END_ALLOW_THREADS
 
+                wsgi_log_python_error(r, NULL, r->filename);
+            }
+        }
+    }
+    else
+        script = r->filename;
+
+    if (!module) {
+        name = wsgi_module_name(r->pool, script);
+
+        modules = PyImport_GetModuleDict();
+        module = PyDict_GetItemString(modules, name);
+
+        Py_XINCREF(module);
+
+        if (module)
+            exists = 1;
+
+        /*
+         * If script reloading is enabled and the module for it has
+         * previously been loaded, see if it has been modified since
+         * the last time it was accessed. For a handler script will
+         * also see if it contains a custom function for determining
+         * if a reload should be performed.
+         */
+
+        if (module && config->script_reloading) {
+            if (wsgi_reload_required(r->pool, r, script, module, r->filename)) {
+                /*
+                 * Script file has changed. Discard reference to
+                 * loaded module and work out what action we are
+                 * supposed to take. Choices are process reloading
+                 * and module reloading. Process reloading cannot be
+                 * performed unless a daemon process is being used.
+                 */
+
+                Py_DECREF(module);
+                module = NULL;
+
+#if defined(MOD_WSGI_WITH_DAEMONS)
+                if (*config->process_group) {
+                    /*
+                     * Need to restart the daemon process. We bail
+                     * out on the request process here, sending back
+                     * a special response header indicating that
+                     * process is being restarted and that remote
+                     * end should abandon connection and attempt to
+                     * reconnect again. We also need to signal this
+                     * process so it will actually shutdown. The
+                     * process supervisor code will ensure that it
+                     * is restarted.
+                     */
+
+                    Py_BEGIN_ALLOW_THREADS
+                    ap_log_rerror(APLOG_MARK, WSGI_LOG_INFO(0), r,
+                                 "mod_wsgi (pid=%d): Force restart of "
+                                 "process '%s'.", getpid(),
+                                 config->process_group);
+                    Py_END_ALLOW_THREADS
+
 #if APR_HAS_THREADS
-                apr_thread_mutex_unlock(wsgi_module_lock);
+                    apr_thread_mutex_unlock(wsgi_module_lock);
 #endif
 
-                wsgi_release_interpreter(interp);
+                    wsgi_release_interpreter(interp);
 
-                r->status = HTTP_INTERNAL_SERVER_ERROR;
-                r->status_line = "0 Rejected";
+                    r->status = HTTP_INTERNAL_SERVER_ERROR;
+                    r->status_line = "0 Rejected";
 
-                wsgi_daemon_shutdown++;
-                kill(getpid(), SIGINT);
+                    wsgi_daemon_shutdown++;
+                    kill(getpid(), SIGINT);
 
-                return OK;
-            }
-            else {
+                    return OK;
+                }
+                else {
+                    /*
+                     * Need to reload just the script module. Remove
+                     * the module from the modules dictionary before
+                     * reloading it again. If code is executing
+                     * within the module at the time, the callers
+                     * reference count on the module should ensure
+                     * it isn't actually destroyed until it is
+                     * finished.
+                     */
+
+                    PyDict_DelItemString(modules, name);
+                }
+#else
                 /*
                  * Need to reload just the script module. Remove
                  * the module from the modules dictionary before
@@ -6414,20 +6451,8 @@ static int wsgi_execute_script(request_rec *r)
                  */
 
                 PyDict_DelItemString(modules, name);
-            }
-#else
-            /*
-             * Need to reload just the script module. Remove
-             * the module from the modules dictionary before
-             * reloading it again. If code is executing
-             * within the module at the time, the callers
-             * reference count on the module should ensure
-             * it isn't actually destroyed until it is
-             * finished.
-             */
-
-            PyDict_DelItemString(modules, name);
 #endif
+            }
         }
     }
 
