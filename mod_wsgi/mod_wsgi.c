@@ -6339,8 +6339,8 @@ static int wsgi_execute_script(request_rec *r)
          * as opposed to a filesystem path.
          */
 
-        if (strstr(script, "module:") == script) {
-            name = script + 7;
+        if (script[0] == '(' && script[strlen(script)-1] == ')') {
+            name = apr_pstrndup(r->pool, script+1, strlen(script)-2);
 
             module = PyImport_ImportModule(name);
 
@@ -6349,7 +6349,7 @@ static int wsgi_execute_script(request_rec *r)
                 ap_log_rerror(APLOG_MARK, WSGI_LOG_ERR(0), r,
                              "mod_wsgi (pid=%d): Failed to import handler "
                              "via Python module reference %s.", getpid(),
-                             name);
+                             script);
                 Py_END_ALLOW_THREADS
 
                 wsgi_log_python_error(r, NULL, r->filename);
