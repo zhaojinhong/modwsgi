@@ -8943,6 +8943,11 @@ static int wsgi_hook_handler(request_rec *r)
         }
     }
 #if AP_SERVER_MAJORVERSION_NUMBER >= 2
+    else if (strstr(r->handler, "wsgi-handler/") == r->handler) {
+        config->handler_script = apr_pstrcat(r->pool, "(", r->handler+13,
+                                             ")", NULL);
+        config->callable_object = "handle_request";
+    }
     else if (config->handler_scripts) {
         WSGIScriptFile *entry;
 
