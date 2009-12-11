@@ -6339,7 +6339,8 @@ static int wsgi_execute_script(request_rec *r)
          * as opposed to a filesystem path.
          */
 
-        if (script[0] == '(' && script[strlen(script)-1] == ')') {
+        if (strlen(script) > 2 && script[0] == '(' &&
+            script[strlen(script)-1] == ')') {
             name = apr_pstrndup(r->pool, script+1, strlen(script)-2);
 
             module = PyImport_ImportModule(name);
