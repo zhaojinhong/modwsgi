@@ -480,7 +480,6 @@ typedef struct {
     int chunked_request;
 
 #if AP_SERVER_MAJORVERSION_NUMBER >= 2
-    WSGIScriptFile *quick_handler_script;
     apr_hash_t *handler_scripts;
 #endif
 } WSGIServerConfig;
@@ -641,11 +640,6 @@ static void *wsgi_merge_server_config(apr_pool_t *p, void *base_conf,
         config->chunked_request = parent->chunked_request;
 
 #if AP_SERVER_MAJORVERSION_NUMBER >= 2
-    if (child->quick_handler_script)
-        config->quick_handler_script = child->quick_handler_script;
-    else
-        config->quick_handler_script = parent->quick_handler_script;
-
     if (!child->handler_scripts)
         config->handler_scripts = parent->handler_scripts;
     else if (!parent->handler_scripts)
@@ -683,7 +677,6 @@ typedef struct {
     int group_authoritative;
 
 #if AP_SERVER_MAJORVERSION_NUMBER >= 2
-    WSGIScriptFile *quick_handler_script;
     apr_hash_t *handler_scripts;
 #endif
 } WSGIDirectoryConfig;
@@ -814,11 +807,6 @@ static void *wsgi_merge_dir_config(apr_pool_t *p, void *base_conf,
         config->group_authoritative = parent->group_authoritative;
 
 #if AP_SERVER_MAJORVERSION_NUMBER >= 2
-    if (child->quick_handler_script)
-        config->quick_handler_script = child->quick_handler_script;
-    else
-        config->quick_handler_script = parent->quick_handler_script;
-
     if (!child->handler_scripts)
         config->handler_scripts = parent->handler_scripts;
     else if (!parent->handler_scripts)
@@ -856,7 +844,6 @@ typedef struct {
     int group_authoritative;
 
 #if AP_SERVER_MAJORVERSION_NUMBER >= 2
-    WSGIScriptFile *quick_handler_script;
     apr_hash_t *handler_scripts;
 #endif
     const char *handler_script;
@@ -1213,11 +1200,6 @@ static WSGIRequestConfig *wsgi_create_req_config(apr_pool_t *p, request_rec *r)
         config->group_authoritative = 1;
 
 #if AP_SERVER_MAJORVERSION_NUMBER >= 2
-    config->quick_handler_script = dconfig->quick_handler_script;
-
-    if (!config->quick_handler_script)
-        config->quick_handler_script = sconfig->quick_handler_script;
-
     if (!dconfig->handler_scripts)
         config->handler_scripts = sconfig->handler_scripts;
     else if (!sconfig->handler_scripts)
@@ -7976,86 +7958,6 @@ static const char *wsgi_add_handler_script(cmd_parms *cmd, void *mconfig,
 
     return NULL;
 }
-
-static const char *wsgi_set_quick_handler_script(cmd_parms *cmd, void *mconfig,
-                                                 const char *args)
-{
-    WSGIScriptFile *object = NULL;
-
-    const char *option = NULL;
-    const char *value = NULL;
-
-    object = newWSGIScriptFile(cmd->pool);
-
-    object->handler_script = ap_getword_conf(cmd->pool, &args);
-    object->application_group = "%{SERVER}";
-
-    if (!object->handler_script || !*object->handler_script)
-        return "Location of handler script not supplied.";
-
-    while (*args) {
-        if (wsgi_parse_option(cmd->pool, &args, &option,
-                              &value) != APR_SUCCESS) {
-            return "Invalid option to WSGI quick handler definition.";
-        }
-
-        if (!cmd->info && !strcmp(option, "application-group")) {
-            if (!*value)
-                return "Invalid name for WSGI application group.";
-
-            if (!strcmp(value, "%{GLOBAL}"))
-                value = "";
-
-            object->application_group = value;
-        }
-#if defined(MOD_WSGI_WITH_DAEMONS)
-        else if (!cmd->info && !strcmp(option, "process-group")) {
-            if (!*value)
-                return "Invalid name for WSGI process group.";
-
-            if (!strcmp(value, "%{GLOBAL}"))
-                value = "";
-
-            object->process_group = value;
-        }
-#endif
-        else if (!strcmp(option, "callable-object")) {
-            if (!*value)
-                return "Invalid name for WSGI callable object.";
-
-            object->callable_object = value;
-        }
-        else if (!strcmp(option, "pass-authorization")) {
-            if (!*value)
-                return "Invalid value for authorization flag.";
-
-            if (strcasecmp(value, "Off") == 0)
-                object->pass_authorization = "0";
-            else if (strcasecmp(value, "On") == 0)
-                object->pass_authorization = "1";
-            else
-                return "Invalid value for authorization flag.";
-        }
-        else
-            return "Invalid option to WSGI quick handler definition.";
-    }
-
-    if (cmd->path) {
-        WSGIDirectoryConfig *dconfig = NULL;
-        dconfig = (WSGIDirectoryConfig *)mconfig;
-
-        dconfig->quick_handler_script = object;
-    }
-    else {
-        WSGIServerConfig *sconfig = NULL;
-        sconfig = ap_get_module_config(cmd->server->module_config,
-                                       &wsgi_module);
-
-        sconfig->quick_handler_script = object;
-    }
-
-    return NULL;
-}
 #endif
 
 /* Handler for the translate name phase. */
@@ -9177,174 +9079,6 @@ static int wsgi_hook_handler(request_rec *r)
 
     return wsgi_execute_script(r);
 }
-
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
-static int wsgi_hook_quick_handler(request_rec *r, int lookup_uri)
-{
-    int status;
-    apr_off_t limit = 0;
-
-    WSGIRequestConfig *config = NULL;
-
-    const char *value = NULL;
-
-    /*
-     * Stuff whole URI in PATH_INFO so that SCRIPT_NAME gets
-     * calculated as empty.
-     */
-
-    r->path_info = r->uri;
-
-    /*
-     * Construct request configuration and cache it in the
-     * request object against this module so can access it later
-     * from handler code.
-     */
-
-    config = wsgi_create_req_config(r->pool, r);
-
-    ap_set_module_config(r->request_config, &wsgi_module, config);
-
-    /*
-     *
-     */
-
-    if (!config->quick_handler_script) {
-      r->path_info = NULL;
-
-      return DECLINED;
-    }
-
-    /*
-     * Need to set target filename to an empty string else lots
-     * of stuff will crash otherwise as every thing written with
-     * expectation that it will not be null.
-     */
-
-    r->filename = "";
-
-    /*
-     * Calculate process/application group etc from options.
-     * Needs to be done after above fiddle to path info.
-     */
-
-    config->handler_script = config->quick_handler_script->handler_script;
-
-    config->callable_object = config->quick_handler_script->callable_object;
-    if (!config->callable_object)
-      config->callable_object = "application";
-
-    if (value = config->quick_handler_script->process_group)
-        config->process_group = wsgi_process_group(r, value);
-    if (value = config->quick_handler_script->application_group)
-        config->application_group = wsgi_application_group(r, value);
-
-    if (value = config->quick_handler_script->pass_authorization) {
-        if (!strcmp(value, "1"))
-            config->pass_authorization = 1;
-        else
-            config->pass_authorization = 0;
-    }
-
-    /*
-     * For Apache 2.0+ honour AcceptPathInfo directive. Default
-     * behaviour is accept additional path information. Under
-     * Apache 1.3, WSGI application would need to check itself.
-     */
-
-#if AP_MODULE_MAGIC_AT_LEAST(20011212,0)
-    if ((r->used_path_info == AP_REQ_REJECT_PATH_INFO) &&
-        r->path_info && *r->path_info) {
-        wsgi_log_script_error(r, "AcceptPathInfo off disallows user's path",
-                              r->filename);
-        return HTTP_NOT_FOUND;
-    }
-#endif
-
-    /*
-     * Setup policy to apply if request contains a body. Note
-     * that WSGI specification doesn't strictly allow for chunked
-     * request content as CONTENT_LENGTH required when reading
-     * input and application isn't meant to read more than what
-     * is defined by CONTENT_LENGTH. To allow chunked request
-     * content tell Apache to dechunk it. For application to use
-     * the content, it has to ignore WSGI specification and use
-     * read() with no arguments to read all available input, or
-     * call read() with specific block size until read() returns
-     * an empty string.
-     */
-
-    if (config->chunked_request)
-        status = ap_setup_client_block(r, REQUEST_CHUNKED_DECHUNK);
-    else
-        status = ap_setup_client_block(r, REQUEST_CHUNKED_ERROR);
-
-    if (status != OK)
-        return status;
-
-    /*
-     * Check to see if request content is too large and end
-     * request here. We do this as otherwise it will not be done
-     * until first time input data is read in application.
-     * Problem is that underlying HTTP output filter will
-     * also generate a 413 response and the error raised from
-     * the application will be appended to that. The call to
-     * ap_discard_request_body() is hopefully enough to trigger
-     * sending of the 413 response by the HTTP filter.
-     */
-
-    limit = ap_get_limit_req_body(r);
-
-    if (limit && limit < r->remaining) {
-        ap_discard_request_body(r);
-        return OK;
-    }
-
-    /* Build the sub process environment. */
-
-    wsgi_build_environment(r);
-
-    /*
-     * If a dispatch script has been provided, as appropriate
-     * allow it to override any of the configuration related
-     * to what context the script will be executed in and what
-     * the target callable object for the application is.
-     */
-
-    if (config->dispatch_script) {
-        status = wsgi_execute_dispatch(r);
-
-        if (status != OK)
-            return status;
-    }
-
-    /*
-     * Execute the target WSGI application script or proxy
-     * request to one of the daemon processes as appropriate.
-     */
-
-#if defined(MOD_WSGI_WITH_DAEMONS)
-    status = wsgi_execute_remote(r);
-
-    if (status != DECLINED)
-        return status;
-#endif
-
-#if defined(MOD_WSGI_DISABLE_EMBEDDED)
-    wsgi_log_script_error(r, "Embedded mode of mod_wsgi disabled at compile "
-                          "time", r->filename);
-    return HTTP_INTERNAL_SERVER_ERROR;
-#endif
-
-    if (wsgi_server_config->restrict_embedded == 1) {
-        wsgi_log_script_error(r, "Embedded mode of mod_wsgi disabled by "
-                              "runtime configuration", r->filename);
-        return HTTP_INTERNAL_SERVER_ERROR;
-    }
-
-    return wsgi_execute_script(r);
-}
-#endif
 
 #if AP_SERVER_MAJORVERSION_NUMBER < 2
 
@@ -15069,7 +14803,6 @@ static void wsgi_register_hooks(apr_pool_t *p)
 
     ap_hook_translate_name(wsgi_hook_intercept, p1, n1, APR_HOOK_MIDDLE);
     ap_hook_handler(wsgi_hook_handler, NULL, NULL, APR_HOOK_MIDDLE);
-    ap_hook_quick_handler(wsgi_hook_quick_handler, NULL, NULL, APR_HOOK_MIDDLE);
 
 #if defined(MOD_WSGI_WITH_DAEMONS)
     ap_hook_post_config(wsgi_hook_logio, NULL, n2, APR_HOOK_REALLY_FIRST);
@@ -15193,8 +14926,6 @@ static const command_rec wsgi_commands[] =
 
     AP_INIT_RAW_ARGS("WSGIHandlerScript", wsgi_add_handler_script,
         NULL, ACCESS_CONF|RSRC_CONF, "Location of WSGI handler script file."),
-    AP_INIT_RAW_ARGS("WSGIQuickHandlerScript", wsgi_set_quick_handler_script,
-        NULL, RSRC_CONF, "Location of WSGI quick handler script file."),
 
     { NULL }
 };
