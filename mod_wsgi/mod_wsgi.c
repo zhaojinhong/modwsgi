@@ -6328,6 +6328,7 @@ static int wsgi_execute_script(request_rec *r)
     if (config->handler_script && *config->handler_script) {
         script = config->handler_script;
 
+#if 0
         /*
          * Check for whether a module reference is provided
          * as opposed to a filesystem path.
@@ -6350,6 +6351,7 @@ static int wsgi_execute_script(request_rec *r)
                 wsgi_log_python_error(r, NULL, r->filename);
             }
         }
+#endif
     }
     else
         script = r->filename;
