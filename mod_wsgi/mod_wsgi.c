@@ -946,7 +946,6 @@ static const char *wsgi_process_group(request_rec *r, const char *s)
 static const char *wsgi_server_group(request_rec *r, const char *s)
 {
     const char *name = NULL;
-    const char *value = NULL;
 
     const char *h = NULL;
     apr_port_t p = 0;
@@ -1729,7 +1728,6 @@ static PyObject *Log_writelines(LogObject *self, PyObject *args)
     PyObject *sequence = NULL;
     PyObject *iterator = NULL;
     PyObject *item = NULL;
-    const char *msg = NULL;
 
     if (self->expired) {
         PyErr_SetString(PyExc_RuntimeError, "log object has expired");
@@ -3007,7 +3005,6 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
                           int exception_when_aborted)
 {
     int i = 0;
-    int n = 0;
     apr_status_t rv;
     request_rec *r;
 
@@ -4021,7 +4018,6 @@ static PyObject *Adapter_file_wrapper(AdapterObject *self, PyObject *args)
 {
     PyObject *filelike = NULL;
     apr_size_t blksize = HUGE_STRING_LEN;
-    PyObject *result = NULL;
 
     if (!self->r) {
         PyErr_SetString(PyExc_RuntimeError, "request object has expired");
@@ -5627,9 +5623,6 @@ static void wsgi_python_version(void)
 
 static apr_status_t wsgi_python_term()
 {
-    PyInterpreterState *interp = NULL;
-    PyThreadState *tstate = NULL;
-
     PyObject *module = NULL;
 
     ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
@@ -6681,7 +6674,6 @@ static apr_status_t wsgi_python_child_cleanup(void *data)
 static void wsgi_python_child_init(apr_pool_t *p)
 {
     PyGILState_STATE state;
-    PyInterpreterState *interp = NULL;
     PyObject *object = NULL;
 
     int thread_id = 0;
@@ -6783,8 +6775,6 @@ static void wsgi_python_child_init(apr_pool_t *p)
         entries = (WSGIScriptFile *)scripts->elts;
 
         for (i = 0; i < scripts->nelts; ++i) {
-            int l = 0;
-
             entry = &entries[i];
 
             if (!strcmp(wsgi_daemon_group, entry->process_group)) {
@@ -7434,7 +7424,6 @@ static const char *wsgi_set_callable_object(cmd_parms *cmd, void *mconfig,
 static const char *wsgi_add_import_script(cmd_parms *cmd, void *mconfig,
                                           const char *args)
 {
-    const char *error = NULL;
     WSGIScriptFile *object = NULL;
 
     const char *option = NULL;
@@ -7845,6 +7834,7 @@ static const char *wsgi_set_auth_group_script(cmd_parms *cmd, void *mconfig,
     return NULL;
 }
 
+#if !defined(MOD_WSGI_WITH_AUTHN_PROVIDER)
 static const char *wsgi_set_user_authoritative(cmd_parms *cmd, void *mconfig,
                                                const char *f)
 {
@@ -7860,6 +7850,7 @@ static const char *wsgi_set_user_authoritative(cmd_parms *cmd, void *mconfig,
 
     return NULL;
 }
+#endif
 
 static const char *wsgi_set_group_authoritative(cmd_parms *cmd, void *mconfig,
                                                 const char *f)
@@ -7881,8 +7872,6 @@ static const char *wsgi_set_group_authoritative(cmd_parms *cmd, void *mconfig,
 static const char *wsgi_add_handler_script(cmd_parms *cmd, void *mconfig,
                                            const char *args)
 {
-    WSGIServerConfig *sconfig = NULL;
-    WSGIDirectoryConfig *dconfig = NULL;
     WSGIScriptFile *object = NULL;
 
     const char *name = NULL;
@@ -8928,15 +8917,15 @@ static int wsgi_hook_handler(request_rec *r)
              * configuration supplied with WSGIScriptAlias directives.
              */
 
-            if (value = apr_table_get(r->notes, "mod_wsgi.process_group"))
+            if ((value = apr_table_get(r->notes, "mod_wsgi.process_group")))
                 config->process_group = wsgi_process_group(r, value);
-            if (value = apr_table_get(r->notes, "mod_wsgi.application_group"))
+            if ((value = apr_table_get(r->notes, "mod_wsgi.application_group")))
                 config->application_group = wsgi_application_group(r, value);
-            if (value = apr_table_get(r->notes, "mod_wsgi.callable_object"))
+            if ((value = apr_table_get(r->notes, "mod_wsgi.callable_object")))
                 config->callable_object = value;
 
-            if (value = apr_table_get(r->notes,
-                                      "mod_wsgi.pass_authorization")) {
+            if ((value = apr_table_get(r->notes,
+                                      "mod_wsgi.pass_authorization"))) {
                 if (!strcmp(value, "1"))
                     config->pass_authorization = 1;
                 else
@@ -8962,12 +8951,12 @@ static int wsgi_hook_handler(request_rec *r)
             config->handler_script = entry->handler_script;
             config->callable_object = "handle_request";
 
-            if (value = entry->process_group)
+            if ((value = entry->process_group))
                 config->process_group = wsgi_process_group(r, value);
-            if (value = entry->application_group)
+            if ((value = entry->application_group))
                 config->application_group = wsgi_application_group(r, value);
 
-            if (value = entry->pass_authorization) {
+            if ((value = entry->pass_authorization)) {
                 if (!strcmp(value, "1"))
                     config->pass_authorization = 1;
                 else
@@ -10274,9 +10263,6 @@ static void wsgi_daemon_worker(apr_pool_t *p, WSGIDaemonThread *thread)
 
     while (!wsgi_daemon_shutdown) {
         apr_status_t rv;
-
-        apr_time_t start;
-        apr_time_t duration;
 
         /*
          * Only allow one thread in this process to attempt to
@@ -12469,11 +12455,6 @@ static int wsgi_hook_daemon_handler(conn_rec *c)
     ap_filter_t *current = NULL;
     ap_filter_t *next = NULL;
 
-    const apr_array_header_t *head = NULL;
-    const apr_table_entry_t *elts = NULL;
-
-    int i = 0;
-
     const char *item;
 
     /* Don't do anything if not in daemon process. */
@@ -14386,6 +14367,8 @@ static int wsgi_hook_access_checker(request_rec *r)
     return HTTP_FORBIDDEN;
 }
 
+#if defined(MOD_WSGI_WITH_AAA_HANDLERS)
+#if !defined(MOD_WSGI_WITH_AUTHN_PROVIDER)
 static int wsgi_hook_check_user_id(request_rec *r)
 {
     WSGIRequestConfig *config;
@@ -14618,6 +14601,8 @@ static int wsgi_hook_check_user_id(request_rec *r)
 
     return status;
 }
+#endif
+#endif
 
 #if defined(MOD_WSGI_WITH_AUTHZ_PROVIDER)
 
