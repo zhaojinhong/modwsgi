@@ -7135,6 +7135,7 @@ static const char *wsgi_add_python_warnings(cmd_parms *cmd, void *mconfig,
     return NULL;
 }
 
+#if PY_MAJOR_VERSION == 2 && PY_MINOR_VERSION >= 6
 static const char *wsgi_set_py3k_warning_flag(cmd_parms *cmd, void *mconfig,
                                               const char *f)
 {
@@ -7156,6 +7157,7 @@ static const char *wsgi_set_py3k_warning_flag(cmd_parms *cmd, void *mconfig,
 
     return NULL;
 }
+#endif
 
 static const char *wsgi_set_python_optimize(cmd_parms *cmd, void *mconfig,
                                             const char *f)
