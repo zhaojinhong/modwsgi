@@ -1294,6 +1294,7 @@ typedef struct {
     const char *script_group;
     int cpu_time_limit;
     int cpu_priority;
+    rlim_t memory_limit;
     const char *socket;
     int listener_fd;
     const char* mutex_path;
@@ -9301,6 +9302,8 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
     int cpu_time_limit = 0;
     int cpu_priority = 0;
 
+    apr_int64_t memory_limit = 0;
+
     uid_t uid;
     uid_t gid;
 
@@ -9527,6 +9530,14 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
 
             cpu_priority = atoi(value);
         }
+        else if (!strcmp(option, "memory-limit")) {
+            if (!*value)
+                return "Invalid memory limit for WSGI daemon process.";
+
+            memory_limit = apr_atoi64(value);
+            if (memory_limit < 0)
+                return "Invalid CPU time limit for WSGI daemon process.";
+        }
         else
             return "Invalid option to WSGI daemon process definition.";
     }
@@ -9591,6 +9602,8 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
 
     entry->cpu_time_limit = cpu_time_limit;
     entry->cpu_priority = cpu_priority;
+
+    entry->memory_limit = memory_limit;
 
     entry->listener_fd = -1;
 
@@ -11055,6 +11068,28 @@ static int wsgi_start_process(apr_pool_t *p, WSGIDaemonProcess *daemon)
                              "mod_wsgi (pid=%d): Couldn't set CPU time "
                              "limit of %d seconds for process '%s'.", getpid(),
                              daemon->group->cpu_time_limit,
+                             daemon->group->name);
+            }
+        }
+
+        /*
+         * Set limits on amount of memory that can be used.
+         * Although this is done, some platforms doesn't actually
+         * support it, such as MacOS X and older Linux kernels.
+         */
+
+        if (daemon->group->memory_limit > 0) {
+            struct rlimit limit;
+
+            limit.rlim_cur = daemon->group->memory_limit;
+
+            limit.rlim_max = daemon->group->memory_limit;
+
+            if (setrlimit(RLIMIT_DATA, &limit) == -1) {
+                ap_log_error(APLOG_MARK, WSGI_LOG_CRIT(0), wsgi_server,
+                             "mod_wsgi (pid=%d): Couldn't set memory time "
+                             "limit of %ld for process '%s'.", getpid(),
+                             (long)daemon->group->memory_limit,
                              daemon->group->name);
             }
         }
