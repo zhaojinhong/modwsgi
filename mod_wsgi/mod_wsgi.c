@@ -11057,13 +11057,18 @@ static int wsgi_start_process(apr_pool_t *p, WSGIDaemonProcess *daemon)
 
         if (daemon->group->cpu_time_limit > 0) {
             struct rlimit limit;
+            int result = -1;
 
             limit.rlim_cur = daemon->group->cpu_time_limit;
 
             limit.rlim_max = daemon->group->cpu_time_limit + 1;
             limit.rlim_max += daemon->group->shutdown_timeout;
 
-            if (setrlimit(RLIMIT_CPU, &limit) == -1) {
+#if defined(RLIMIT_CPU)
+            result = setrlimit(RLIMIT_CPU, &limit);
+#endif
+
+            if (result == -1) {
                 ap_log_error(APLOG_MARK, WSGI_LOG_CRIT(0), wsgi_server,
                              "mod_wsgi (pid=%d): Couldn't set CPU time "
                              "limit of %d seconds for process '%s'.", getpid(),
@@ -11080,12 +11085,21 @@ static int wsgi_start_process(apr_pool_t *p, WSGIDaemonProcess *daemon)
 
         if (daemon->group->memory_limit > 0) {
             struct rlimit limit;
+            int result = -1;
 
             limit.rlim_cur = daemon->group->memory_limit;
 
             limit.rlim_max = daemon->group->memory_limit;
 
-            if (setrlimit(RLIMIT_DATA, &limit) == -1) {
+#if defined(RLIMIT_AS)
+            result = setrlimit(RLIMIT_AS, &limit);
+#elif defined(RLIMIT_DATA)
+            result = setrlimit(RLIMIT_DATA, &limit);
+#elif defined(RLIMIT_VMEM)
+            result = setrlimit(RLIMIT_VMEM, &limit);
+#endif
+
+            if (result == -1) {
                 ap_log_error(APLOG_MARK, WSGI_LOG_CRIT(0), wsgi_server,
                              "mod_wsgi (pid=%d): Couldn't set memory time "
                              "limit of %ld for process '%s'.", getpid(),
