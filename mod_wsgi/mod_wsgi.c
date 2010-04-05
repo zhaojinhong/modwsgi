@@ -3703,28 +3703,28 @@ static int Adapter_process_file_wrapper(AdapterObject *self)
         return 0;
     }
 
-   if (PyLong_Check(object)) {
+    if (PyLong_Check(object)) {
 #if defined(HAVE_LONG_LONG)
-       fo_offset = PyLong_AsLongLong(object);
+        fo_offset = PyLong_AsLongLong(object);
 #else
-       fo_offset = PyLong_AsLong(object);
+        fo_offset = PyLong_AsLong(object);
 #endif
-   }
+    }
 #if PY_MAJOR_VERSION < 3
-   else if (PyInt_Check(object)) {
-       fo_offset = PyInt_AsLong(object);
-   }
+    else if (PyInt_Check(object)) {
+        fo_offset = PyInt_AsLong(object);
+    }
 #endif
-   else {
-       Py_DECREF(object);
-       return 0;
-   }
+    else {
+        Py_DECREF(object);
+        return 0;
+    }
 
-   if (PyErr_Occurred()){
-       Py_DECREF(object);
-       PyErr_Clear();
-       return 0;
-   }
+    if (PyErr_Occurred()){
+        Py_DECREF(object);
+        PyErr_Clear();
+        return 0;
+    }
 
     Py_DECREF(object);
 
