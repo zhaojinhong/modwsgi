@@ -406,6 +406,7 @@ static apr_pool_t *wsgi_parent_pool = NULL;
 static apr_pool_t *wsgi_daemon_pool = NULL;
 
 static int volatile wsgi_daemon_shutdown = 0;
+static int volatile wsgi_daemon_graceful = 0;
 
 #if defined(MOD_WSGI_WITH_DAEMONS)
 static apr_interval_time_t wsgi_deadlock_timeout = 0;
@@ -9734,23 +9735,25 @@ static const char *wsgi_set_accept_mutex(cmd_parms *cmd, void *mconfig,
 static apr_file_t *wsgi_signal_pipe_in = NULL;
 static apr_file_t *wsgi_signal_pipe_out = NULL;
 
-static int wsgi_cpu_time_limit_exceeded = 0;
-
 static void wsgi_signal_handler(int signum)
 {
     apr_size_t nbytes = 1;
 
-    if (signum != AP_SIG_GRACEFUL) {
-        if (signum == SIGXCPU)
-            wsgi_cpu_time_limit_exceeded = 1;
-
-        apr_file_write(wsgi_signal_pipe_out, "S", &nbytes);
+    if (signum == AP_SIG_GRACEFUL) {
+        apr_file_write(wsgi_signal_pipe_out, "G", &nbytes);
         apr_file_flush(wsgi_signal_pipe_out);
+    }
+    else if (signum == SIGXCPU) {
+        if (!wsgi_graceful_timeout)
+            wsgi_daemon_shutdown++;
 
-        wsgi_daemon_shutdown++;
+        apr_file_write(wsgi_signal_pipe_out, "C", &nbytes);
+        apr_file_flush(wsgi_signal_pipe_out);
     }
     else {
-        apr_file_write(wsgi_signal_pipe_out, "G", &nbytes);
+        wsgi_daemon_shutdown++;
+
+        apr_file_write(wsgi_signal_pipe_out, "S", &nbytes);
         apr_file_flush(wsgi_signal_pipe_out);
     }
 }
@@ -10528,10 +10531,10 @@ static void wsgi_daemon_worker(apr_pool_t *p, WSGIDaemonThread *thread)
                 }
             }
         }
-        else if (wsgi_graceful_shutdown_time) {
-            if (!wsgi_daemon_shutdown && !wsgi_active_requests) {
+        else if (wsgi_daemon_graceful && !wsgi_daemon_shutdown) {
+            if (wsgi_active_requests == 0) {
                 ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
-                             "mod_wsgi (pid=%d): Process now idle, "
+                             "mod_wsgi (pid=%d): Requests have completed, "
                              "triggering immediate shutdown '%s'.",
                              getpid(), daemon->group->name);
 
@@ -10908,33 +10911,64 @@ static void wsgi_daemon_main(apr_pool_t *p, WSGIDaemonProcess *daemon)
             break;
         }
 
-        if (buf[0] != 'G')
-            break;
+        if (buf[0] == 'C') {
+            ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
+                         "mod_wsgi (pid=%d): Exceeded CPU time limit '%s'.",
+                         getpid(), daemon->group->name);
 
-        apr_thread_mutex_lock(wsgi_shutdown_lock);
+            if (!wsgi_daemon_graceful) {
+                if (wsgi_active_requests) {
+                    wsgi_daemon_graceful++;
 
-        if (!wsgi_graceful_shutdown_time) {
-            if (wsgi_active_requests) {
-                wsgi_graceful_shutdown_time = apr_time_now();
-                wsgi_graceful_shutdown_time += wsgi_graceful_timeout;
+                    apr_thread_mutex_lock(wsgi_shutdown_lock);
+                    wsgi_graceful_shutdown_time = apr_time_now();
+                    wsgi_graceful_shutdown_time += wsgi_graceful_timeout;
+                    apr_thread_mutex_unlock(wsgi_shutdown_lock);
 
-                ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
-                             "mod_wsgi (pid=%d): Graceful shutdown "
-                             "requested '%s'.", getpid(), daemon->group->name);
-            }
-            else {
-                wsgi_daemon_shutdown++;
-                kill(getpid(), SIGINT);
+                    ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
+                                 "mod_wsgi (pid=%d): Exceeded CPU time "
+                                 "limit, waiting for requests to complete "
+                                 "'%s'.", getpid(), daemon->group->name);
+                }
+                else {
+                    ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
+                                 "mod_wsgi (pid=%d): Exceeded CPU time "
+                                 "limit, triggering immediate shutdown "
+                                 "'%s'.", getpid(), daemon->group->name);
+
+                    wsgi_daemon_shutdown++;
+                    kill(getpid(), SIGINT);
+                }
             }
         }
+        else if (buf[0] == 'G') {
+            if (!wsgi_daemon_graceful) {
+                if (wsgi_active_requests) {
+                    wsgi_daemon_graceful++;
 
-        apr_thread_mutex_unlock(wsgi_shutdown_lock);
-    }
+                    apr_thread_mutex_lock(wsgi_shutdown_lock);
+                    wsgi_graceful_shutdown_time = apr_time_now();
+                    wsgi_graceful_shutdown_time += wsgi_graceful_timeout;
+                    apr_thread_mutex_unlock(wsgi_shutdown_lock);
 
-    if (wsgi_cpu_time_limit_exceeded) {
-        ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
-                     "mod_wsgi (pid=%d): Exceeded CPU time limit '%s'.",
-                     getpid(), daemon->group->name);
+                    ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
+                                 "mod_wsgi (pid=%d): Graceful shutdown "
+                                 "requested, waiting for requests to complete "
+                                 "'%s'.", getpid(), daemon->group->name);
+                }
+                else {
+                    ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
+                                 "mod_wsgi (pid=%d): Graceful shutdown "
+                                 "requested, triggering immediate shutdown "
+                                 "'%s'.", getpid(), daemon->group->name);
+
+                    wsgi_daemon_shutdown++;
+                    kill(getpid(), SIGINT);
+                }
+            }
+        }
+        else
+            break;
     }
 
     ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
