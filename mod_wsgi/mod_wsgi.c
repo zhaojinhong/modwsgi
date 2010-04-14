@@ -9740,13 +9740,19 @@ static void wsgi_signal_handler(int signum)
 {
     apr_size_t nbytes = 1;
 
-    if (signum == SIGXCPU)
-        wsgi_cpu_time_limit_exceeded = 1;
+    if (signum != AP_SIG_GRACEFUL) {
+        if (signum == SIGXCPU)
+            wsgi_cpu_time_limit_exceeded = 1;
 
-    apr_file_write(wsgi_signal_pipe_out, "X", &nbytes);
-    apr_file_flush(wsgi_signal_pipe_out);
+        apr_file_write(wsgi_signal_pipe_out, "S", &nbytes);
+        apr_file_flush(wsgi_signal_pipe_out);
 
-    wsgi_daemon_shutdown++;
+        wsgi_daemon_shutdown++;
+    }
+    else {
+        apr_file_write(wsgi_signal_pipe_out, "G", &nbytes);
+        apr_file_flush(wsgi_signal_pipe_out);
+    }
 }
 
 static int wsgi_start_process(apr_pool_t *p, WSGIDaemonProcess *daemon);
@@ -10522,6 +10528,17 @@ static void wsgi_daemon_worker(apr_pool_t *p, WSGIDaemonThread *thread)
                 }
             }
         }
+        else if (wsgi_graceful_shutdown_time) {
+            if (!wsgi_daemon_shutdown && !wsgi_active_requests) {
+                ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
+                             "mod_wsgi (pid=%d): Process now idle, "
+                             "triggering immediate shutdown '%s'.",
+                             getpid(), daemon->group->name);
+
+                wsgi_daemon_shutdown++;
+                kill(getpid(), SIGINT);
+            }
+        }
     }
 }
 
@@ -10873,9 +10890,46 @@ static void wsgi_daemon_main(apr_pool_t *p, WSGIDaemonProcess *daemon)
 
     /* Block until we get a process shutdown signal. */
 
-    do {
+    while (1) {
+        char buf[1];
+        apr_size_t nbytes = 1;
+
         rv = apr_poll(&poll_fd, 1, &poll_count, -1);
-    } while (APR_STATUS_IS_EINTR(rv));
+        if (APR_STATUS_IS_EINTR(rv))
+            continue;
+
+        rv = apr_file_read(wsgi_signal_pipe_in, buf, &nbytes);
+
+        if (rv != APR_SUCCESS || nbytes != 1) {
+            ap_log_error(APLOG_MARK, WSGI_LOG_ALERT(0), wsgi_server,
+                         "mod_wsgi (pid=%d): Failed read on signal pipe '%s'.",
+                         getpid(), daemon->group->name);
+
+            break;
+        }
+
+        if (buf[0] != 'G')
+            break;
+
+        apr_thread_mutex_lock(wsgi_shutdown_lock);
+
+        if (!wsgi_graceful_shutdown_time) {
+            if (wsgi_active_requests) {
+                wsgi_graceful_shutdown_time = apr_time_now();
+                wsgi_graceful_shutdown_time += wsgi_graceful_timeout;
+
+                ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
+                             "mod_wsgi (pid=%d): Graceful shutdown "
+                             "requested '%s'.", getpid(), daemon->group->name);
+            }
+            else {
+                wsgi_daemon_shutdown++;
+                kill(getpid(), SIGINT);
+            }
+        }
+
+        apr_thread_mutex_unlock(wsgi_shutdown_lock);
+    }
 
     if (wsgi_cpu_time_limit_exceeded) {
         ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
@@ -11129,6 +11183,9 @@ static int wsgi_start_process(apr_pool_t *p, WSGIDaemonProcess *daemon)
 
         apr_signal(SIGINT, wsgi_signal_handler);
         apr_signal(SIGTERM, wsgi_signal_handler);
+
+        apr_signal(AP_SIG_GRACEFUL, wsgi_signal_handler);
+
 #ifdef SIGXCPU
         apr_signal(SIGXCPU, wsgi_signal_handler);
 #endif
