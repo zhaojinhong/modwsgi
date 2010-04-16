@@ -5346,19 +5346,19 @@ static void Interpreter_dealloc(InterpreterObject *self)
             Py_DECREF(func);
 
             /*
-	     * In Python 2.6.5 and Python 3.1.2 the shutdown of
-	     * threading was moved back into Py_Finalize() for
-	     * the main Python interpreter. Because we do this
-	     * above, the second call results in errors being
-	     * logged when Py_Finalize() is called and the
-	     * shutdown function called a second time. The
-	     * errors don't indicate any real problem and the
-	     * threading module ignores them anyway. Whether we
-	     * are using Python with this changed behaviour can
-	     * only be checked by looking at run time version.
-	     * Rather than try and add a dynamic check, create a
-	     * fake 'dummy_threading' module as the presence of
-	     * that shuts up the messages. It doesn't matter
+             * In Python 2.6.5 and Python 3.1.2 the shutdown of
+             * threading was moved back into Py_Finalize() for
+             * the main Python interpreter. Because we do this
+             * above, the second call results in errors being
+             * logged when Py_Finalize() is called and the
+             * shutdown function called a second time. The
+             * errors don't indicate any real problem and the
+             * threading module ignores them anyway. Whether we
+             * are using Python with this changed behaviour can
+             * only be checked by looking at run time version.
+             * Rather than try and add a dynamic check, create a
+             * fake 'dummy_threading' module as the presence of
+             * that shuts up the messages. It doesn't matter
              * that the rest of the shutdown function still runs
              * as everything is already stopped so doesn't do
              * anything.
@@ -11273,9 +11273,9 @@ static int wsgi_start_process(apr_pool_t *p, WSGIDaemonProcess *daemon)
         }
 
         /*
-	 * Set limits on amount of date segment memory that can
-	 * be used. Although this is done, some platforms
-	 * doesn't actually support it.
+         * Set limits on amount of date segment memory that can
+         * be used. Although this is done, some platforms
+         * doesn't actually support it.
          */
 
         if (daemon->group->memory_limit > 0) {
@@ -11773,8 +11773,8 @@ static int wsgi_connect_daemon(request_rec *r, WSGIDaemonSocket *daemon)
                 close(daemon->fd);
 
                 /*
-		 * Progressively increase time we wait between
-		 * connection attempts. Start at 0.1 second and
+                 * Progressively increase time we wait between
+                 * connection attempts. Start at 0.1 second and
                  * double each time but apply ceiling at 2.0
                  * seconds.
                  */
