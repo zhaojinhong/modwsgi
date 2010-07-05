@@ -11499,15 +11499,27 @@ static int wsgi_start_process(apr_pool_t *p, WSGIDaemonProcess *daemon)
 
             if (daemon->group->server->error_log  &&
                 daemon->group->server->error_log != wsgi_server->error_log) {
+
+                apr_file_t *oldfile = NULL;
+
                 apr_file_open_stderr(&errfile, wsgi_server->process->pool);
                 apr_file_dup2(errfile, daemon->group->server->error_log,
                               wsgi_server->process->pool);
 
-                apr_file_close(daemon->group->server->error_log);
-                daemon->group->server->error_log = errfile;
+                oldfile = daemon->group->server->error_log;
+
+                server = wsgi_server;
+
+                while (server != NULL) {
+                    if (server->error_log == oldfile)
+                        server->error_log = errfile;
+                    server = server->next;
+                }
+
+                apr_file_close(oldfile);
 
                 if (wsgi_server->error_log)
-                    wsgi_server->error_log = daemon->group->server->error_log;
+                    wsgi_server->error_log = errfile;
             }
         }
 
