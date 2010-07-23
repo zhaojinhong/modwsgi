@@ -11534,10 +11534,8 @@ static int wsgi_start_process(apr_pool_t *p, WSGIDaemonProcess *daemon)
             if (wsgi_server_config->verbose_debugging) {
                 ap_log_error(APLOG_MARK, WSGI_LOG_DEBUG(0), wsgi_server,
                              "mod_wsgi (pid=%d): Process '%s' logging to "
-                             "'%s' with log level %d.", getpid(),
-                             daemon->group->name,
-                             daemon->group->server->server_hostname,
-                             daemon->group->server->loglevel);
+                             "'%s'.", getpid(), daemon->group->name,
+                             daemon->group->server->server_hostname);
             }
 
             wsgi_server = daemon->group->server;
@@ -11546,9 +11544,8 @@ static int wsgi_start_process(apr_pool_t *p, WSGIDaemonProcess *daemon)
             if (wsgi_server_config->verbose_debugging) {
                 ap_log_error(APLOG_MARK, WSGI_LOG_DEBUG(0), wsgi_server,
                              "mod_wsgi (pid=%d): Process '%s' forced to log "
-                             "to '%s' with log level %d.", getpid(),
-                             daemon->group->name, wsgi_server->server_hostname,
-                             wsgi_server->loglevel);
+                             "to '%s'.", getpid(), daemon->group->name,
+                             wsgi_server->server_hostname);
             }
         }
 
