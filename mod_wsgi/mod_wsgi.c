@@ -14986,7 +14986,7 @@ static authz_status wsgi_check_authorization(request_rec *r,
 
     if (apr_table_elts(grpstatus)->nelts == 0) {
         ap_log_rerror(APLOG_MARK, WSGI_LOG_ERR(0), r, "mod_wsgi (pid=%d): "
-                      "Authorization of user '%s' to access '%s' failed. ",
+                      "Authorization of user '%s' to access '%s' failed. "
                       "User is not a member of any groups.", getpid(),
                       r->user, r->uri);
         return AUTHZ_DENIED;
