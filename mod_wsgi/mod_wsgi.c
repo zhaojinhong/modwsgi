@@ -13779,15 +13779,13 @@ static PyObject *Auth_environ(AuthObject *self, const char *group)
      */
 
 #if AP_SERVER_MAJORVERSION_NUMBER >= 2
-    if (!wsgi_daemon_pool) {
-        object = PyObject_GetAttrString((PyObject *)self, "ssl_is_https");
-        PyDict_SetItemString(vars, "mod_ssl.is_https", object);
-        Py_DECREF(object);
+    object = PyObject_GetAttrString((PyObject *)self, "ssl_is_https");
+    PyDict_SetItemString(vars, "mod_ssl.is_https", object);
+    Py_DECREF(object);
 
-        object = PyObject_GetAttrString((PyObject *)self, "ssl_var_lookup");
-        PyDict_SetItemString(vars, "mod_ssl.var_lookup", object);
-        Py_DECREF(object);
-    }
+    object = PyObject_GetAttrString((PyObject *)self, "ssl_var_lookup");
+    PyDict_SetItemString(vars, "mod_ssl.var_lookup", object);
+    Py_DECREF(object);
 #endif
 
     return vars;
