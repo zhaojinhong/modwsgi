@@ -96,6 +96,12 @@ typedef int apr_lockmech_e;
 #include "http_config.h"
 #include "ap_listen.h"
 #include "apr_version.h"
+
+#include "apr_optional.h"
+
+typedef int (*ssl_is_https_t)(conn_rec *);
+typedef char *(*ssl_var_lookup_t)(apr_pool_t *, server_rec *, conn_rec *,
+                                  request_rec *, char *);
 #endif
 
 #include "ap_config.h"
@@ -3610,6 +3616,23 @@ static PyObject *Adapter_environ(AdapterObject *self)
         Py_DECREF(object);
     }
 
+    /*
+     * Extensions for accessing SSL certificate information from
+     * mod_ssl when in use.
+     */
+
+#if AP_SERVER_MAJORVERSION_NUMBER >= 2
+    if (!wsgi_daemon_pool) {
+        object = PyObject_GetAttrString((PyObject *)self, "ssl_is_https");
+        PyDict_SetItemString(vars, "mod_ssl.is_https", object);
+        Py_DECREF(object);
+
+        object = PyObject_GetAttrString((PyObject *)self, "ssl_var_lookup");
+        PyDict_SetItemString(vars, "mod_ssl.var_lookup", object);
+        Py_DECREF(object);
+    }
+#endif
+
     return vars;
 }
 
@@ -4052,10 +4075,75 @@ static PyObject *Adapter_file_wrapper(AdapterObject *self, PyObject *args)
     return newStreamObject(self, filelike, blksize);
 }
 
+#if AP_SERVER_MAJORVERSION_NUMBER >= 2
+
+static PyObject *Adapter_ssl_is_https(AdapterObject *self, PyObject *args)
+{
+    ssl_is_https_t ssl_is_https = 0;
+
+    if (!self->r) {
+        PyErr_SetString(PyExc_RuntimeError, "request object has expired");
+        return NULL;
+    }
+
+    if (!PyArg_ParseTuple(args, ":ssl_is_https"))
+        return NULL;
+
+    ssl_is_https = (ssl_is_https_t)apr_dynamic_fn_retrieve("ssl_is_https");
+
+    if (ssl_is_https == 0)
+      return Py_BuildValue("i", 0);
+
+    return Py_BuildValue("i", ssl_is_https(self->r->connection));
+}
+
+static PyObject *Adapter_ssl_var_lookup(AdapterObject *self, PyObject *args)
+{
+    ssl_var_lookup_t ssl_var_lookup = 0;
+
+    char *name = 0;
+    char *value = 0;
+
+    if (!self->r) {
+        PyErr_SetString(PyExc_RuntimeError, "request object has expired");
+        return NULL;
+    }
+
+    if (!PyArg_ParseTuple(args, "s:ssl_var_lookup", &name))
+        return NULL;
+
+    ssl_var_lookup = (ssl_var_lookup_t)
+                      apr_dynamic_fn_retrieve("ssl_var_lookup");
+
+    if (ssl_var_lookup == 0)
+    {
+        Py_XINCREF(Py_None);
+
+        return Py_None;
+    }
+
+    value = ssl_var_lookup(self->r->pool, self->r->server,
+                           self->r->connection, self->r, name);
+
+    if (!value) {
+        Py_XINCREF(Py_None);
+
+        return Py_None;
+    }
+
+    return Py_BuildValue("s", value);
+}
+
+#endif
+
 static PyMethodDef Adapter_methods[] = {
     { "start_response", (PyCFunction)Adapter_start_response, METH_VARARGS, 0 },
     { "write",          (PyCFunction)Adapter_write, METH_VARARGS, 0 },
     { "file_wrapper",   (PyCFunction)Adapter_file_wrapper, METH_VARARGS, 0 },
+#if AP_SERVER_MAJORVERSION_NUMBER >= 2
+    { "ssl_is_https",   (PyCFunction)Adapter_ssl_is_https, METH_VARARGS, 0 },
+    { "ssl_var_lookup", (PyCFunction)Adapter_ssl_var_lookup, METH_VARARGS, 0 },
+#endif
     { NULL, NULL}
 };
 
@@ -13685,8 +13773,94 @@ static PyObject *Auth_environ(AuthObject *self, const char *group)
         Py_DECREF(object);
     }
 
+    /*
+     * Extensions for accessing SSL certificate information from
+     * mod_ssl when in use.
+     */
+
+#if AP_SERVER_MAJORVERSION_NUMBER >= 2
+    if (!wsgi_daemon_pool) {
+        object = PyObject_GetAttrString((PyObject *)self, "ssl_is_https");
+        PyDict_SetItemString(vars, "mod_ssl.is_https", object);
+        Py_DECREF(object);
+
+        object = PyObject_GetAttrString((PyObject *)self, "ssl_var_lookup");
+        PyDict_SetItemString(vars, "mod_ssl.var_lookup", object);
+        Py_DECREF(object);
+    }
+#endif
+
     return vars;
 }
+
+#if AP_SERVER_MAJORVERSION_NUMBER >= 2
+
+static PyObject *Auth_ssl_is_https(AuthObject *self, PyObject *args)
+{
+    ssl_is_https_t ssl_is_https = 0;
+
+    if (!self->r) {
+        PyErr_SetString(PyExc_RuntimeError, "request object has expired");
+        return NULL;
+    }
+
+    if (!PyArg_ParseTuple(args, ":ssl_is_https"))
+        return NULL;
+
+    ssl_is_https = (ssl_is_https_t)apr_dynamic_fn_retrieve("ssl_is_https");
+
+    if (ssl_is_https == 0)
+      return Py_BuildValue("i", 0);
+
+    return Py_BuildValue("i", ssl_is_https(self->r->connection));
+}
+
+static PyObject *Auth_ssl_var_lookup(AuthObject *self, PyObject *args)
+{
+    ssl_var_lookup_t ssl_var_lookup = 0;
+
+    char *name = 0;
+    char *value = 0;
+
+    if (!self->r) {
+        PyErr_SetString(PyExc_RuntimeError, "request object has expired");
+        return NULL;
+    }
+
+    if (!PyArg_ParseTuple(args, "s:ssl_var_lookup", &name))
+        return NULL;
+
+    ssl_var_lookup = (ssl_var_lookup_t)
+                      apr_dynamic_fn_retrieve("ssl_var_lookup");
+
+    if (ssl_var_lookup == 0)
+    {
+        Py_XINCREF(Py_None);
+
+        return Py_None;
+    }
+
+    value = ssl_var_lookup(self->r->pool, self->r->server,
+                           self->r->connection, self->r, name);
+
+    if (!value) {
+        Py_XINCREF(Py_None);
+
+        return Py_None;
+    }
+
+    return Py_BuildValue("s", value);
+}
+
+#endif
+
+static PyMethodDef Auth_methods[] = {
+#if AP_SERVER_MAJORVERSION_NUMBER >= 2
+    { "ssl_is_https",   (PyCFunction)Auth_ssl_is_https, METH_VARARGS, 0 },
+    { "ssl_var_lookup", (PyCFunction)Auth_ssl_var_lookup, METH_VARARGS, 0 },
+#endif
+    { NULL, NULL}
+};
 
 static PyTypeObject Auth_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
@@ -13717,7 +13891,7 @@ static PyTypeObject Auth_Type = {
     0,                      /*tp_weaklistoffset*/
     0,                      /*tp_iter*/
     0,                      /*tp_iternext*/
-    0,                      /*tp_methods*/
+    Auth_methods,           /*tp_methods*/
     0,                      /*tp_members*/
     0,                      /*tp_getset*/
     0,                      /*tp_base*/
