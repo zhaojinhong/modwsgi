@@ -99,9 +99,10 @@ typedef int apr_lockmech_e;
 
 #include "apr_optional.h"
 
-typedef int (*ssl_is_https_t)(conn_rec *);
-typedef char *(*ssl_var_lookup_t)(apr_pool_t *, server_rec *, conn_rec *,
-                                  request_rec *, char *);
+APR_DECLARE_OPTIONAL_FN(int, ssl_is_https, (conn_rec *));
+APR_DECLARE_OPTIONAL_FN(char *, ssl_var_lookup, (apr_pool_t *,
+      server_rec *, conn_rec *, request_rec *, char *));
+
 #endif
 
 #include "ap_config.h"
@@ -3468,7 +3469,6 @@ static int Adapter_output_file(AdapterObject *self, apr_file_t* tmpfile,
 #endif
 
 #if AP_SERVER_MAJORVERSION_NUMBER >= 2
-APR_DECLARE_OPTIONAL_FN(int, ssl_is_https, (conn_rec *));
 static APR_OPTIONAL_FN_TYPE(ssl_is_https) *wsgi_is_https = NULL;
 #endif
 
@@ -3621,6 +3621,7 @@ static PyObject *Adapter_environ(AdapterObject *self)
      * mod_ssl when in use.
      */
 
+#if 0
 #if AP_SERVER_MAJORVERSION_NUMBER >= 2
     if (!wsgi_daemon_pool) {
         object = PyObject_GetAttrString((PyObject *)self, "ssl_is_https");
@@ -3631,6 +3632,7 @@ static PyObject *Adapter_environ(AdapterObject *self)
         PyDict_SetItemString(vars, "mod_ssl.var_lookup", object);
         Py_DECREF(object);
     }
+#endif
 #endif
 
     return vars;
@@ -4079,7 +4081,7 @@ static PyObject *Adapter_file_wrapper(AdapterObject *self, PyObject *args)
 
 static PyObject *Adapter_ssl_is_https(AdapterObject *self, PyObject *args)
 {
-    ssl_is_https_t ssl_is_https = 0;
+    APR_OPTIONAL_FN_TYPE(ssl_is_https) *ssl_is_https = 0;
 
     if (!self->r) {
         PyErr_SetString(PyExc_RuntimeError, "request object has expired");
@@ -4089,7 +4091,7 @@ static PyObject *Adapter_ssl_is_https(AdapterObject *self, PyObject *args)
     if (!PyArg_ParseTuple(args, ":ssl_is_https"))
         return NULL;
 
-    ssl_is_https = (ssl_is_https_t)apr_dynamic_fn_retrieve("ssl_is_https");
+    ssl_is_https = APR_RETRIEVE_OPTIONAL_FN(ssl_is_https);
 
     if (ssl_is_https == 0)
       return Py_BuildValue("i", 0);
@@ -4099,7 +4101,7 @@ static PyObject *Adapter_ssl_is_https(AdapterObject *self, PyObject *args)
 
 static PyObject *Adapter_ssl_var_lookup(AdapterObject *self, PyObject *args)
 {
-    ssl_var_lookup_t ssl_var_lookup = 0;
+    APR_OPTIONAL_FN_TYPE(ssl_var_lookup) *ssl_var_lookup = 0;
 
     char *name = 0;
     char *value = 0;
@@ -4112,8 +4114,7 @@ static PyObject *Adapter_ssl_var_lookup(AdapterObject *self, PyObject *args)
     if (!PyArg_ParseTuple(args, "s:ssl_var_lookup", &name))
         return NULL;
 
-    ssl_var_lookup = (ssl_var_lookup_t)
-                      apr_dynamic_fn_retrieve("ssl_var_lookup");
+    ssl_var_lookup = APR_RETRIEVE_OPTIONAL_FN(ssl_var_lookup);
 
     if (ssl_var_lookup == 0)
     {
@@ -13795,7 +13796,7 @@ static PyObject *Auth_environ(AuthObject *self, const char *group)
 
 static PyObject *Auth_ssl_is_https(AuthObject *self, PyObject *args)
 {
-    ssl_is_https_t ssl_is_https = 0;
+    APR_OPTIONAL_FN_TYPE(ssl_is_https) *ssl_is_https = 0;
 
     if (!self->r) {
         PyErr_SetString(PyExc_RuntimeError, "request object has expired");
@@ -13805,7 +13806,7 @@ static PyObject *Auth_ssl_is_https(AuthObject *self, PyObject *args)
     if (!PyArg_ParseTuple(args, ":ssl_is_https"))
         return NULL;
 
-    ssl_is_https = (ssl_is_https_t)apr_dynamic_fn_retrieve("ssl_is_https");
+    ssl_is_https = APR_RETRIEVE_OPTIONAL_FN(ssl_is_https);
 
     if (ssl_is_https == 0)
       return Py_BuildValue("i", 0);
@@ -13815,7 +13816,7 @@ static PyObject *Auth_ssl_is_https(AuthObject *self, PyObject *args)
 
 static PyObject *Auth_ssl_var_lookup(AuthObject *self, PyObject *args)
 {
-    ssl_var_lookup_t ssl_var_lookup = 0;
+    APR_OPTIONAL_FN_TYPE(ssl_var_lookup) *ssl_var_lookup = 0;
 
     char *name = 0;
     char *value = 0;
@@ -13828,8 +13829,7 @@ static PyObject *Auth_ssl_var_lookup(AuthObject *self, PyObject *args)
     if (!PyArg_ParseTuple(args, "s:ssl_var_lookup", &name))
         return NULL;
 
-    ssl_var_lookup = (ssl_var_lookup_t)
-                      apr_dynamic_fn_retrieve("ssl_var_lookup");
+    ssl_var_lookup = APR_RETRIEVE_OPTIONAL_FN(ssl_var_lookup);
 
     if (ssl_var_lookup == 0)
     {
