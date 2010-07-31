@@ -4187,7 +4187,11 @@ static PyObject *Adapter_ssl_var_lookup(AdapterObject *self, PyObject *args)
         return Py_None;
     }
 
-    return Py_BuildValue("s", value);
+#if PY_MAJOR_VERSION >= 3
+    return PyUnicode_DecodeLatin1(value, strlen(value), NULL);
+#else
+    return PyString_FromString(value);
+#endif
 }
 
 #endif
@@ -13959,7 +13963,11 @@ static PyObject *Auth_ssl_var_lookup(AuthObject *self, PyObject *args)
         return Py_None;
     }
 
-    return Py_BuildValue("s", value);
+#if PY_MAJOR_VERSION >= 3
+    return PyUnicode_DecodeLatin1(value, strlen(value), NULL);
+#else
+    return PyString_FromString(value);
+#endif
 }
 
 #endif
