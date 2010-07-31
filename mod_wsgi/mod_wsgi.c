@@ -8588,6 +8588,7 @@ static PyObject *Dispatch_environ(DispatchObject *self, const char *group)
      * mod_ssl when in use.
      */
 
+#if 0
 #if AP_SERVER_MAJORVERSION_NUMBER >= 2
     object = PyObject_GetAttrString((PyObject *)self, "ssl_is_https");
     PyDict_SetItemString(vars, "mod_ssl.is_https", object);
@@ -8596,6 +8597,7 @@ static PyObject *Dispatch_environ(DispatchObject *self, const char *group)
     object = PyObject_GetAttrString((PyObject *)self, "ssl_var_lookup");
     PyDict_SetItemString(vars, "mod_ssl.var_lookup", object);
     Py_DECREF(object);
+#endif
 #endif
 
     return vars;
