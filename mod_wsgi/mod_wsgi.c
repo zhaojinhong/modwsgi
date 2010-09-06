@@ -464,6 +464,7 @@ typedef struct {
 
     int python_optimize;
     int py3k_warning_flag;
+    int dont_write_bytecode;
 
     const char *python_home;
     const char *python_path;
@@ -535,6 +536,7 @@ static WSGIServerConfig *newWSGIServerConfig(apr_pool_t *p)
 
     object->py3k_warning_flag = -1;
     object->python_optimize = -1;
+    object->dont_write_bytecode = -1;
 
     object->python_home = NULL;
     object->python_path = NULL;
@@ -5889,6 +5891,13 @@ static void wsgi_python_init(apr_pool_t *p)
             Py_Py3kWarningFlag++;
 #endif
 
+        /* Disable writing of byte code files. */
+
+#if PY_MAJOR_VERSION == 2 && PY_MINOR_VERSION >= 6
+        if (wsgi_server_config->dont_write_bytecode == 1)
+            Py_DontWriteBytecodeFlag++;
+#endif
+
         /* Check for Python paths and optimisation flag. */
 
         if (wsgi_server_config->python_optimize > 0)
@@ -7349,6 +7358,28 @@ static const char *wsgi_set_py3k_warning_flag(cmd_parms *cmd, void *mconfig,
         sconfig->py3k_warning_flag = 1;
     else
         return "WSGIPy3kWarningFlag must be one of: Off | On";
+
+    return NULL;
+}
+
+static const char *wsgi_set_dont_write_bytecode(cmd_parms *cmd, void *mconfig,
+                                                const char *f)
+{
+    const char *error = NULL;
+    WSGIServerConfig *sconfig = NULL;
+
+    error = ap_check_cmd_context(cmd, GLOBAL_ONLY);
+    if (error != NULL)
+        return error;
+
+    sconfig = ap_get_module_config(cmd->server->module_config, &wsgi_module);
+
+    if (strcasecmp(f, "Off") == 0)
+        sconfig->dont_write_bytecode = 0;
+    else if (strcasecmp(f, "On") == 0)
+        sconfig->dont_write_bytecode = 1;
+    else
+        return "WSGIDontWriteBytecode must be one of: Off | On";
 
     return NULL;
 }
@@ -9526,6 +9557,8 @@ static const command_rec wsgi_commands[] =
 #if PY_MAJOR_VERSION == 2 && PY_MINOR_VERSION >= 6
     { "WSGIPy3kWarningFlag", wsgi_set_py3k_warning_flag, NULL,
         RSRC_CONF, TAKE1, "Enable/Disable Python 3.0 warnings." },
+    { "WSGIDontWriteBytecode", wsgi_set_dont_write_bytecode, NULL,
+        RSRC_CONF, TAKE1, "Enable/Disable writing of byte code." },
 #endif
 
     { "WSGIPythonWarnings", wsgi_add_python_warnings, NULL,
@@ -15601,6 +15634,8 @@ static const command_rec wsgi_commands[] =
 #if PY_MAJOR_VERSION == 2 && PY_MINOR_VERSION >= 6
     AP_INIT_TAKE1("WSGIPy3kWarningFlag", wsgi_set_py3k_warning_flag,
         NULL, RSRC_CONF, "Enable/Disable Python 3.0 warnings."),
+    AP_INIT_TAKE1("WSGIDontWriteBytecode", wsgi_set_dont_write_bytecode,
+        NULL, RSRC_CONF, "Enable/Disable writing of byte code."),
 #endif
 
     AP_INIT_TAKE1("WSGIPythonWarnings", wsgi_add_python_warnings,
