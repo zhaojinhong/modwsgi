@@ -1649,8 +1649,6 @@ static PyObject *Log_close(LogObject *self, PyObject *args)
 
 static PyObject *Log_isatty(LogObject *self, PyObject *args)
 {
-    PyObject *result = NULL;
-
     if (!PyArg_ParseTuple(args, ":isatty"))
         return NULL;
 
