@@ -10111,7 +10111,7 @@ static const char *wsgi_set_accept_mutex(cmd_parms *cmd, void *mconfig,
         sconfig->lock_mechanism = APR_LOCK_FCNTL;
     }
 #endif
-#if APR_HAS_SYSVSEM_SERIALIZE && !defined(PERCHILD_MPM)
+#if APR_HAS_SYSVSEM_SERIALIZE
     else if (!strcasecmp(arg, "sysvsem")) {
         sconfig->lock_mechanism = APR_LOCK_SYSVSEM;
     }
@@ -10175,17 +10175,14 @@ static void wsgi_manage_process(int reason, void *data, apr_wait_t status)
             int mpm_state;
             int stopping;
 
-            /* Stop watching the existing process. */
-
-            apr_proc_other_child_unregister(daemon);
-
             /*
-             * Determine if Apache is being shutdown or not and
-             * if it is not being shutdown, restart the child
-             * daemon process that has died. If MPM doesn't
-             * support query assume that child daemon process
-             * shouldn't be restarted. Both prefork and worker
-             * MPMs support this query so should always be okay.
+	     * Determine if Apache is being shutdown or not and
+	     * if it is not being shutdown, we will need to
+	     * restart the child daemon process that has died.
+	     * If MPM doesn't support query assume that child
+	     * daemon process shouldn't be restarted. Both
+	     * prefork and worker MPMs support this query so
+	     * should always be okay.
              */
 
             stopping = 1;
@@ -10198,11 +10195,26 @@ static void wsgi_manage_process(int reason, void *data, apr_wait_t status)
             if (!stopping) {
                 ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0),
                              wsgi_server, "mod_wsgi (pid=%d): "
-                             "Process '%s' has died, restarting.",
-                             daemon->process.pid, daemon->group->name);
-
-                wsgi_start_process(wsgi_parent_pool, daemon);
+                             "Process '%s' has died, deregister and "
+                             "restart it.", daemon->process.pid,
+                             daemon->group->name);
             }
+            else {
+                ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0),
+                             wsgi_server, "mod_wsgi (pid=%d): "
+                             "Process '%s' has died but server is "
+                             "being stopped, deregister it.",
+                             daemon->process.pid, daemon->group->name);
+            }
+
+            /* Deregister existing process so we stop watching it. */
+
+            apr_proc_other_child_unregister(daemon);
+
+            /* Now restart process if not shutting down. */
+
+            if (!stopping)
+                wsgi_start_process(wsgi_parent_pool, daemon);
 
             break;
         }
@@ -10211,7 +10223,13 @@ static void wsgi_manage_process(int reason, void *data, apr_wait_t status)
 
         case APR_OC_REASON_RESTART: {
 
-            /* Stop watching the existing process. */
+            ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0),
+                         wsgi_server, "mod_wsgi (pid=%d): "
+                         "Process '%s' to be deregistered, as server is "
+                         "restarting or being shutdown.",
+                         daemon->process.pid, daemon->group->name);
+
+            /* Deregister existing process so we stop watching it. */
 
             apr_proc_other_child_unregister(daemon);
 
@@ -10222,16 +10240,17 @@ static void wsgi_manage_process(int reason, void *data, apr_wait_t status)
 
         case APR_OC_REASON_LOST: {
 
-            /* Stop watching the existing process. */
+            ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0),
+                         wsgi_server, "mod_wsgi (pid=%d): "
+                         "Process '%s' appears to have been lost, "
+                         "deregister and restart it.",
+                         daemon->process.pid, daemon->group->name);
+
+            /* Deregister existing process so we stop watching it. */
 
             apr_proc_other_child_unregister(daemon);
 
             /* Restart the child daemon process that has died. */
-
-            ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0),
-                         wsgi_server, "mod_wsgi (pid=%d): "
-                         "Process '%s' has died, restarting.",
-                         daemon->process.pid, daemon->group->name);
 
             wsgi_start_process(wsgi_parent_pool, daemon);
 
@@ -10244,7 +10263,20 @@ static void wsgi_manage_process(int reason, void *data, apr_wait_t status)
 
             /* Nothing to do at present. */
 
+            ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0),
+                         wsgi_server, "mod_wsgi (pid=%d): "
+                         "Process '%s' has been deregistered and will "
+                         "no longer be monitored.", daemon->process.pid,
+                         daemon->group->name);
+
             break;
+        }
+
+        default: {
+            ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0),
+                         wsgi_server, "mod_wsgi (pid=%d): "
+                         "Process '%s' targeted by unexpected event %d.",
+                         daemon->process.pid, daemon->group->name, reason);
         }
     }
 }
@@ -10753,6 +10785,7 @@ static void wsgi_daemon_worker(apr_pool_t *p, WSGIDaemonThread *thread)
             rv = apr_proc_mutex_lock(group->mutex);
 
             if (rv != APR_SUCCESS) {
+#if 0
 #if defined(EIDRM)
                 /*
                  * When using multiple threads locking the
@@ -10776,6 +10809,7 @@ static void wsgi_daemon_worker(apr_pool_t *p, WSGIDaemonThread *thread)
                         wsgi_daemon_shutdown = 1;
                 }
 #endif
+#endif
 
                 if (!wsgi_daemon_shutdown) {
                     ap_log_error(APLOG_MARK, WSGI_LOG_CRIT(rv),
@@ -10784,6 +10818,7 @@ static void wsgi_daemon_worker(apr_pool_t *p, WSGIDaemonThread *thread)
                                  "Shutting down daemon process.",
                                  getpid(), group->socket);
 
+                    wsgi_daemon_shutdown++;
                     kill(getpid(), SIGTERM);
                     sleep(5);
                 }
@@ -10956,12 +10991,38 @@ static void wsgi_daemon_worker(apr_pool_t *p, WSGIDaemonThread *thread)
             }
         }
     }
+
+    if (wsgi_server_config->verbose_debugging) {
+        ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
+                     "mod_wsgi (pid=%d): Exiting thread %d in daemon "
+                     "process '%s'.", getpid(), thread->id,
+                     thread->process->group->name);
+    }
+    else {
+        ap_log_error(APLOG_MARK, WSGI_LOG_DEBUG(0), wsgi_server,
+                     "mod_wsgi (pid=%d): Exiting thread %d in daemon "
+                     "process '%s'.", getpid(), thread->id,
+                     thread->process->group->name);
+    }
 }
 
 static void *wsgi_daemon_thread(apr_thread_t *thd, void *data)
 {
     WSGIDaemonThread *thread = data;
     apr_pool_t *p = apr_thread_pool_get(thd);
+
+    if (wsgi_server_config->verbose_debugging) {
+      ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
+                   "mod_wsgi (pid=%d): Started thread %d in daemon "
+                   "process '%s'.", getpid(), thread->id,
+                   thread->process->group->name);
+    }
+    else {
+      ap_log_error(APLOG_MARK, WSGI_LOG_DEBUG(0), wsgi_server,
+                   "mod_wsgi (pid=%d): Started thread %d in daemon "
+                   "process '%s'.", getpid(), thread->id,
+                   thread->process->group->name);
+    }
 
     apr_thread_mutex_lock(thread->mutex);
 
