@@ -1613,9 +1613,6 @@ static PyObject *Log_flush(LogObject *self, PyObject *args)
         return NULL;
     }
 
-    if (!PyArg_ParseTuple(args, ":flush"))
-        return NULL;
-
     if (self->s) {
         Log_call(self, self->s, self->l);
 
@@ -1632,9 +1629,6 @@ static PyObject *Log_close(LogObject *self, PyObject *args)
 {
     PyObject *result = NULL;
 
-    if (!PyArg_ParseTuple(args, ":close"))
-        return NULL;
-
     if (!self->expired)
         result = Log_flush(self, args);
 
@@ -1649,9 +1643,6 @@ static PyObject *Log_close(LogObject *self, PyObject *args)
 
 static PyObject *Log_isatty(LogObject *self, PyObject *args)
 {
-    if (!PyArg_ParseTuple(args, ":isatty"))
-        return NULL;
-
     Py_INCREF(Py_False);
     return Py_False;
 }
@@ -1826,27 +1817,18 @@ static PyObject *Log_writelines(LogObject *self, PyObject *args)
 #if PY_MAJOR_VERSION >= 3
 static PyObject *Log_readable(LogObject *self, PyObject *args)
 {
-    if (!PyArg_ParseTuple(args, ":readable"))
-        return NULL;
-
     Py_INCREF(Py_False);
     return Py_False;
 }
 
 static PyObject *Log_seekable(LogObject *self, PyObject *args)
 {
-    if (!PyArg_ParseTuple(args, ":seekable"))
-        return NULL;
-
     Py_INCREF(Py_False);
     return Py_False;
 }
 
 static PyObject *Log_writable(LogObject *self, PyObject *args)
 {
-    if (!PyArg_ParseTuple(args, ":writable"))
-        return NULL;
-
     Py_INCREF(Py_True);
     return Py_True;
 }
@@ -2133,9 +2115,6 @@ static PyObject *Input_close(InputObject *self, PyObject *args)
         PyErr_SetString(PyExc_RuntimeError, "request object has expired");
         return NULL;
     }
-
-    if (!PyArg_ParseTuple(args, ":close"))
-        return NULL;
 
     Py_INCREF(Py_None);
     return Py_None;
@@ -4373,7 +4352,6 @@ static PyObject *Stream_close(StreamObject *self, PyObject *args)
 static PyObject *Stream_file(StreamObject *self, PyObject *args)
 {
     Py_INCREF(self->filelike);
-
     return self->filelike;
 }
 
