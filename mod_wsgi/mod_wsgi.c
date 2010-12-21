@@ -1896,15 +1896,15 @@ static PyObject *Log_get_errors(LogObject *self, void *closure)
 #endif
 
 static PyMethodDef Log_methods[] = {
-    { "flush",      (PyCFunction)Log_flush,      METH_VARARGS, 0 },
-    { "close",      (PyCFunction)Log_close,      METH_VARARGS, 0 },
-    { "isatty",     (PyCFunction)Log_isatty,     METH_VARARGS, 0 },
+    { "flush",      (PyCFunction)Log_flush,      METH_NOARGS, 0 },
+    { "close",      (PyCFunction)Log_close,      METH_NOARGS, 0 },
+    { "isatty",     (PyCFunction)Log_isatty,     METH_NOARGS, 0 },
     { "write",      (PyCFunction)Log_write,      METH_VARARGS, 0 },
     { "writelines", (PyCFunction)Log_writelines, METH_VARARGS, 0 },
 #if PY_MAJOR_VERSION >= 3
-    { "readable",   (PyCFunction)Log_readable,   METH_VARARGS, 0 },
-    { "seekable",   (PyCFunction)Log_seekable,   METH_VARARGS, 0 },
-    { "writable",   (PyCFunction)Log_writable,   METH_VARARGS, 0 },
+    { "readable",   (PyCFunction)Log_readable,   METH_NOARGS, 0 },
+    { "seekable",   (PyCFunction)Log_seekable,   METH_NOARGS, 0 },
+    { "writable",   (PyCFunction)Log_writable,   METH_NOARGS, 0 },
 #endif
     { NULL, NULL}
 };
@@ -2776,7 +2776,7 @@ static PyObject *Input_readlines(InputObject *self, PyObject *args)
 }
 
 static PyMethodDef Input_methods[] = {
-    { "close",     (PyCFunction)Input_close,     METH_VARARGS, 0 },
+    { "close",     (PyCFunction)Input_close,     METH_NOARGS, 0 },
     { "read",      (PyCFunction)Input_read,      METH_VARARGS, 0 },
     { "readline",  (PyCFunction)Input_readline,  METH_VARARGS, 0 },
     { "readlines", (PyCFunction)Input_readlines, METH_VARARGS, 0 },
@@ -4370,8 +4370,16 @@ static PyObject *Stream_close(StreamObject *self, PyObject *args)
     return Py_None;
 }
 
+static PyObject *Stream_file(StreamObject *self, PyObject *args)
+{
+    Py_INCREF(self->filelike);
+
+    return self->filelike;
+}
+
 static PyMethodDef Stream_methods[] = {
-    { "close",      (PyCFunction)Stream_close,      METH_VARARGS, 0 },
+    { "close",      (PyCFunction)Stream_close,      METH_NOARGS, 0 },
+    { "file",       (PyCFunction)Stream_file,       METH_NOARGS, 0 },
     { NULL, NULL}
 };
 
