@@ -4238,7 +4238,7 @@ static int Stream_init(StreamObject *self, PyObject *args, PyObject *kwds)
 
     static char *kwlist[] = { "filelike", "blksize", NULL };
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|l", kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|l:FileWrapper", kwlist,
                                      &filelike, &blksize)) {
         return -1;
     }
