@@ -3670,9 +3670,6 @@ static int Adapter_process_file_wrapper(AdapterObject *self)
     if (PyObject_IsInstance(self->sequence, (PyObject *)&Stream_Type))
         return 0;
 
-    ap_log_error(APLOG_MARK, WSGI_LOG_WARNING(0), wsgi_server,
-                 "mod_wsgi (pid=%d): IsInstance", getpid());
-
     /*
      * Only attempt to perform optimisations if the
      * write() function returned by start_response()
