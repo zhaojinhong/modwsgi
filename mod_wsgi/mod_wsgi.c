@@ -157,6 +157,7 @@ typedef regmatch_t ap_regmatch_t;
 #error Sorry, mod_wsgi requires that Python supporting thread.
 #endif
 
+#include "structmember.h"
 #include "compile.h"
 #include "node.h"
 #include "osdefs.h"
@@ -2875,7 +2876,6 @@ static PyTypeObject Adapter_Type;
 
 typedef struct {
         PyObject_HEAD
-        AdapterObject *adapter;
         PyObject *filelike;
         apr_size_t blksize;
 } StreamObject;
@@ -3600,9 +3600,7 @@ static PyObject *Adapter_environ(AdapterObject *self)
 
     /* Setup file wrapper object for efficient file responses. */
 
-    object = PyObject_GetAttrString((PyObject *)self, "file_wrapper");
-    PyDict_SetItemString(vars, "wsgi.file_wrapper", object);
-    Py_DECREF(object);
+    PyDict_SetItemString(vars, "wsgi.file_wrapper", (PyObject *)&Stream_Type);
 
     /* Add mod_wsgi version information. */
 
@@ -3669,8 +3667,11 @@ static int Adapter_process_file_wrapper(AdapterObject *self)
 
     /* Perform file wrapper optimisations where possible. */
 
-    if (self->sequence->ob_type != &Stream_Type)
+    if (PyObject_IsInstance(self->sequence, (PyObject *)&Stream_Type))
         return 0;
+
+    ap_log_error(APLOG_MARK, WSGI_LOG_WARNING(0), wsgi_server,
+                 "mod_wsgi (pid=%d): IsInstance", getpid());
 
     /*
      * Only attempt to perform optimisations if the
@@ -4068,25 +4069,6 @@ static PyObject *Adapter_write(AdapterObject *self, PyObject *args)
     return Py_None;
 }
 
-static PyObject *newStreamObject(AdapterObject *adapter, PyObject *filelike,
-                                 apr_size_t blksize);
-
-static PyObject *Adapter_file_wrapper(AdapterObject *self, PyObject *args)
-{
-    PyObject *filelike = NULL;
-    apr_size_t blksize = HUGE_STRING_LEN;
-
-    if (!self->r) {
-        PyErr_SetString(PyExc_RuntimeError, "request object has expired");
-        return NULL;
-    }
-
-    if (!PyArg_ParseTuple(args, "O|l:file_wrapper", &filelike, &blksize))
-        return NULL;
-
-    return newStreamObject(self, filelike, blksize);
-}
-
 #if AP_SERVER_MAJORVERSION_NUMBER >= 2
 
 static PyObject *Adapter_ssl_is_https(AdapterObject *self, PyObject *args)
@@ -4181,7 +4163,6 @@ static PyObject *Adapter_ssl_var_lookup(AdapterObject *self, PyObject *args)
 static PyMethodDef Adapter_methods[] = {
     { "start_response", (PyCFunction)Adapter_start_response, METH_VARARGS, 0 },
     { "write",          (PyCFunction)Adapter_write, METH_VARARGS, 0 },
-    { "file_wrapper",   (PyCFunction)Adapter_file_wrapper, METH_VARARGS, 0 },
 #if AP_SERVER_MAJORVERSION_NUMBER >= 2
     { "ssl_is_https",   (PyCFunction)Adapter_ssl_is_https, METH_VARARGS, 0 },
     { "ssl_var_lookup", (PyCFunction)Adapter_ssl_var_lookup, METH_VARARGS, 0 },
@@ -4233,40 +4214,58 @@ static PyTypeObject Adapter_Type = {
     0,                      /*tp_is_gc*/
 };
 
-static PyObject *newStreamObject(AdapterObject *adapter, PyObject *filelike,
-                                 apr_size_t blksize)
+static PyObject *Stream_new(PyTypeObject *type, PyObject *args,
+                            PyObject *kwds)
 {
     StreamObject *self;
 
-    self = PyObject_New(StreamObject, &Stream_Type);
+    self = (StreamObject *)type->tp_alloc(type, 0);
     if (self == NULL)
         return NULL;
 
-    self->adapter = adapter;
-    self->filelike = filelike;
-    self->blksize = blksize;
-
-    Py_INCREF(self->adapter);
+    self->filelike = Py_None;
     Py_INCREF(self->filelike);
+
+    self->blksize = 0;
 
     return (PyObject *)self;
 }
 
+static int Stream_init(StreamObject *self, PyObject *args, PyObject *kwds)
+{
+    PyObject *filelike = NULL;
+    apr_size_t blksize = HUGE_STRING_LEN;
+
+    static char *kwlist[] = { "filelike", "blksize", NULL };
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|l", kwlist,
+                                     &filelike, &blksize)) {
+        return -1;
+    }
+
+    if (filelike) {
+        PyObject *tmp = NULL;
+
+        tmp = self->filelike;
+        Py_INCREF(filelike);
+        self->filelike = filelike;
+        Py_XDECREF(tmp);
+    }
+
+    self->blksize = blksize;
+
+    return 0;
+}
+
 static void Stream_dealloc(StreamObject *self)
 {
-    Py_DECREF(self->filelike);
-    Py_DECREF(self->adapter);
+    Py_XDECREF(self->filelike);
 
-    PyObject_Del(self);
+    Py_TYPE(self)->tp_free(self);
 }
 
 static PyObject *Stream_iter(StreamObject *self)
 {
-    if (!self->adapter->r) {
-        PyErr_SetString(PyExc_RuntimeError, "request object has expired");
-        return NULL;
-    }
-
     Py_INCREF(self);
     return (PyObject *)self;
 }
@@ -4276,11 +4275,6 @@ static PyObject *Stream_iternext(StreamObject *self)
     PyObject *method = NULL;
     PyObject *args = NULL;
     PyObject *result = NULL;
-
-    if (!self->adapter->r) {
-        PyErr_SetString(PyExc_RuntimeError, "request object has expired");
-        return NULL;
-    }
 
     method = PyObject_GetAttrString(self->filelike, "read");
 
@@ -4349,21 +4343,20 @@ static PyObject *Stream_close(StreamObject *self, PyObject *args)
     return Py_None;
 }
 
-static PyObject *Stream_file(StreamObject *self, PyObject *args)
-{
-    Py_INCREF(self->filelike);
-    return self->filelike;
-}
-
 static PyMethodDef Stream_methods[] = {
     { "close",      (PyCFunction)Stream_close,      METH_NOARGS, 0 },
-    { "file",       (PyCFunction)Stream_file,       METH_NOARGS, 0 },
-    { NULL, NULL}
+    { NULL, NULL }
+};
+
+static PyMemberDef Stream_members[] = {
+    { "filelike", T_OBJECT, offsetof(StreamObject, filelike), 0, 0 },
+    { "blksize",  T_INT,    offsetof(StreamObject, blksize),  0, 0 },
+    { NULL },
 };
 
 static PyTypeObject Stream_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    "mod_wsgi.Stream",      /*tp_name*/
+    "mod_wsgi.FileWrapper", /*tp_name*/
     sizeof(StreamObject),   /*tp_basicsize*/
     0,                      /*tp_itemsize*/
     /* methods */
@@ -4383,9 +4376,9 @@ static PyTypeObject Stream_Type = {
     0,                      /*tp_setattro*/
     0,                      /*tp_as_buffer*/
 #if defined(Py_TPFLAGS_HAVE_ITER)
-    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_ITER, /*tp_flags*/
+    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_HAVE_ITER, /*tp_flags*/
 #else
-    Py_TPFLAGS_DEFAULT,     /*tp_flags*/
+    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE, /*tp_flags*/
 #endif
     0,                      /*tp_doc*/
     0,                      /*tp_traverse*/
@@ -4395,16 +4388,16 @@ static PyTypeObject Stream_Type = {
     (getiterfunc)Stream_iter, /*tp_iter*/
     (iternextfunc)Stream_iternext, /*tp_iternext*/
     Stream_methods,         /*tp_methods*/
-    0,                      /*tp_members*/
+    Stream_members,         /*tp_members*/
     0,                      /*tp_getset*/
     0,                      /*tp_base*/
     0,                      /*tp_dict*/
     0,                      /*tp_descr_get*/
     0,                      /*tp_descr_set*/
     0,                      /*tp_dictoffset*/
-    0,                      /*tp_init*/
+    (initproc)Stream_init,  /*tp_init*/
     0,                      /*tp_alloc*/
-    0,                      /*tp_new*/
+    Stream_new,             /*tp_new*/
     0,                      /*tp_free*/
     0,                      /*tp_is_gc*/
 };
@@ -5144,6 +5137,11 @@ static InterpreterObject *newInterpreterObject(const char *name)
     PyModule_AddObject(module, "version", Py_BuildValue("(ii)",
                        MOD_WSGI_MAJORVERSION_NUMBER,
                        MOD_WSGI_MINORVERSION_NUMBER));
+
+    /* Add type object for file wrapper. */
+
+    Py_INCREF(&Stream_Type);
+    PyModule_AddObject(module, "FileWrapper", (PyObject *)&Stream_Type);
 
     /*
      * Add information about process group and application
