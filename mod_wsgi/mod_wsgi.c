@@ -3696,13 +3696,23 @@ static int Adapter_process_file_wrapper(AdapterObject *self)
      * iterable value.
      */
 
-    filelike = ((StreamObject *)self->sequence)->filelike;
+
+    filelike = PyObject_GetAttrString((PyObject *)self->sequence, "filelike");
+
+    if (!filelike) {
+        PyErr_SetString(PyExc_KeyError,
+                        "file wrapper no filelike attribute");
+        return 0;
+    }
 
     fd = PyObject_AsFileDescriptor(filelike);
     if (fd == -1) {
         PyErr_Clear();
+        Py_DECREF(filelike);
         return 0;
     }
+
+    Py_DECREF(filelike);
 
     /*
      * On some platforms, such as Linux, sendfile() system call
@@ -4269,23 +4279,53 @@ static PyObject *Stream_iter(StreamObject *self)
 
 static PyObject *Stream_iternext(StreamObject *self)
 {
+    PyObject *attribute = NULL;
     PyObject *method = NULL;
     PyObject *args = NULL;
     PyObject *result = NULL;
 
-    method = PyObject_GetAttrString(self->filelike, "read");
+    attribute = PyObject_GetAttrString((PyObject *)self, "filelike");
+
+    if (!attribute) {
+        PyErr_SetString(PyExc_KeyError,
+                        "file wrapper no filelike attribute");
+        return 0;
+    }
+
+    method = PyObject_GetAttrString(attribute, "read");
 
     if (!method) {
         PyErr_SetString(PyExc_KeyError,
                         "file like object has no read() method");
+        Py_DECREF(attribute);
         return 0;
     }
 
-    args = Py_BuildValue("(l)", self->blksize);
+    Py_DECREF(attribute);
+
+    attribute = PyObject_GetAttrString((PyObject *)self, "blksize");
+
+    if (!attribute) {
+        PyErr_SetString(PyExc_KeyError,
+                        "file wrapper has no blksize attribute");
+        Py_DECREF(method);
+        return 0;
+    }
+
+    if (!PyInt_Check(attribute)) {
+        PyErr_SetString(PyExc_KeyError,
+                        "file wrapper blksize attribute not integer");
+        Py_DECREF(method);
+        Py_DECREF(attribute);
+        return 0;
+    }
+
+    args = Py_BuildValue("(O)", attribute);
     result = PyEval_CallObject(method, args);
 
-    Py_DECREF(method);
     Py_DECREF(args);
+    Py_DECREF(method);
+    Py_DECREF(attribute);
 
     if (!result)
         return 0;
@@ -4348,14 +4388,26 @@ static PyObject *Stream_close(StreamObject *self, PyObject *args)
     return Py_None;
 }
 
+static PyObject *Stream_get_filelike(StreamObject *self, void *closure)
+{
+    Py_INCREF(self->filelike);
+    return self->filelike;
+}
+
+
+static PyObject *Stream_get_blksize(StreamObject *self, void *closure)
+{
+    return PyInt_FromLong(self->blksize);
+}
+
 static PyMethodDef Stream_methods[] = {
     { "close",      (PyCFunction)Stream_close,      METH_NOARGS, 0 },
     { NULL, NULL }
 };
 
-static PyMemberDef Stream_members[] = {
-    { "filelike", T_OBJECT, offsetof(StreamObject, filelike), 0, 0 },
-    { "blksize",  T_INT,    offsetof(StreamObject, blksize),  0, 0 },
+static PyGetSetDef Stream_getset[] = {
+    { "filelike", (getter)Stream_get_filelike, NULL, 0 },
+    { "blksize",  (getter)Stream_get_blksize, NULL, 0 },
     { NULL },
 };
 
@@ -4393,8 +4445,8 @@ static PyTypeObject Stream_Type = {
     (getiterfunc)Stream_iter, /*tp_iter*/
     (iternextfunc)Stream_iternext, /*tp_iternext*/
     Stream_methods,         /*tp_methods*/
-    Stream_members,         /*tp_members*/
-    0,                      /*tp_getset*/
+    0,                      /*tp_members*/
+    Stream_getset,          /*tp_getset*/
     0,                      /*tp_base*/
     0,                      /*tp_dict*/
     0,                      /*tp_descr_get*/
