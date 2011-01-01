@@ -3667,7 +3667,7 @@ static int Adapter_process_file_wrapper(AdapterObject *self)
 
     /* Perform file wrapper optimisations where possible. */
 
-    if (PyObject_IsInstance(self->sequence, (PyObject *)&Stream_Type))
+    if (!PyObject_IsInstance(self->sequence, (PyObject *)&Stream_Type))
         return 0;
 
     /*
