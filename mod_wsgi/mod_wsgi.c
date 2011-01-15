@@ -1,7 +1,7 @@
 /* vim: set sw=4 expandtab : */
 
 /*
- * Copyright 2007-2010 GRAHAM DUMPLETON
+ * Copyright 2007-2011 GRAHAM DUMPLETON
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -3616,7 +3616,11 @@ static PyObject *Adapter_environ(AdapterObject *self)
      */
 
     if (!wsgi_daemon_pool && self->config->pass_apache_request) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 2
+        object = PyCapsule_New(self->r, 0, 0);
+#else
         object = PyCObject_FromVoidPtr(self->r, 0);
+#endif
         PyDict_SetItemString(vars, "apache.request_rec", object);
         Py_DECREF(object);
     }
@@ -4397,7 +4401,7 @@ static PyObject *Stream_get_filelike(StreamObject *self, void *closure)
 
 static PyObject *Stream_get_blksize(StreamObject *self, void *closure)
 {
-    return PyInt_FromLong(self->blksize);
+    return PyLong_FromLong(self->blksize);
 }
 
 static PyMethodDef Stream_methods[] = {
@@ -8651,7 +8655,11 @@ static PyObject *Dispatch_environ(DispatchObject *self, const char *group)
      */
 
     if (!wsgi_daemon_pool && self->config->pass_apache_request) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 2
+        object = PyCapsule_New(self->r, 0, 0);
+#else
         object = PyCObject_FromVoidPtr(self->r, 0);
+#endif
         PyDict_SetItemString(vars, "apache.request_rec", object);
         Py_DECREF(object);
     }
@@ -14110,7 +14118,11 @@ static PyObject *Auth_environ(AuthObject *self, const char *group)
      */
 
     if (!wsgi_daemon_pool && self->config->pass_apache_request) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 2
+        object = PyCapsule_New(self->r, 0, 0);
+#else
         object = PyCObject_FromVoidPtr(self->r, 0);
+#endif
         PyDict_SetItemString(vars, "apache.request_rec", object);
         Py_DECREF(object);
     }
