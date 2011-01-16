@@ -54,6 +54,10 @@
 #endif
 
 #if AP_SERVER_MAJORVERSION_NUMBER < 2
+#error Sorry, mod_wsgi 4.0+ requires Apache 2.0+.
+#endif
+
+#if AP_SERVER_MAJORVERSION_NUMBER < 2
 typedef int apr_status_t;
 #define APR_SUCCESS 0
 typedef pool apr_pool_t;
@@ -13700,10 +13704,30 @@ static int wsgi_hook_init(apr_pool_t *pconf, apr_pool_t *ptemp,
                           apr_pool_t *plog, server_rec *s)
 {
     void *data = NULL;
-    const char *userdata_key = "wsgi_init";
+    const char *userdata_key;
     char package[128];
 
     int status = OK;
+
+    /*
+     * No longer support using mod_python at the same time as
+     * mod_wsgi as becoming too painful to hack around
+     * mod_python's broken usage of threading APIs when align
+     * code to the stricter API requirements of Python 3.2.
+     */
+
+    userdata_key = "python_init";
+
+    apr_pool_userdata_get(&data, userdata_key, s->process->pool);
+    if (data) {
+        ap_log_error(APLOG_MARK, WSGI_LOG_CRIT(0), NULL,
+                     "mod_wsgi (pid=%d): The mod_python module can "
+                     "not be used on conjunction with mod_wsgi 4.0+. "
+                     "Remove the mod_python module from the Apache "
+                     "configuration.", getpid());
+
+        return HTTP_INTERNAL_SERVER_ERROR;
+    }
 
     /*
      * Init function gets called twice during startup, we only
@@ -13711,6 +13735,8 @@ static int wsgi_hook_init(apr_pool_t *pconf, apr_pool_t *ptemp,
      * called. This avoids unecessarily initialising and then
      * destroying Python for no reason.
      */
+
+    userdata_key = "wsgi_init";
 
     apr_pool_userdata_get(&data, userdata_key, s->process->pool);
     if (!data) {
