@@ -2955,8 +2955,8 @@ static PyObject *Adapter_start_response(AdapterObject *self, PyObject *args)
         return NULL;
     }
 
-    if (!PyArg_ParseTuple(args, "OO!|O:start_response",
-        &item, &PyList_Type, &headers, &exc_info)) {
+    if (!PyArg_ParseTuple(args, "OO!|O!:start_response",
+        &item, &PyList_Type, &headers, &PyTuple_Type, &exc_info)) {
         return NULL;
     }
 
