@@ -32,7 +32,9 @@ LDLIBS = \
  libapr-1.lib \
  libaprutil-1.lib
 
-mod_wsgi.so : mod_wsgi.c
+SRCFILES = wsgi_convert.c
+
+mod_wsgi.so : mod_wsgi.c $(SRCFILES)
 	cl $(CPPFLAGS) $(CFLAGS) $? /LD $(LDFLAGS) $(LDLIBS) /OUT:$@
         mt -manifest $@.manifest -outputresource:$@;2
 

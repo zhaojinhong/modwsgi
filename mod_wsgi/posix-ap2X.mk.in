@@ -23,10 +23,12 @@ CFLAGS = @CFLAGS@
 LDFLAGS = @LDFLAGS@
 LDLIBS = @LDLIBS@
 
+SRCFILES = wsgi_convert.c
+
 all : mod_wsgi.la
 
-mod_wsgi.la : mod_wsgi.c
-	$(APXS) -c $(CPPFLAGS) $(CFLAGS) mod_wsgi.c $(LDFLAGS) $(LDLIBS)
+mod_wsgi.la : mod_wsgi.c $(SRCFILES)
+	$(APXS) -c $(CPPFLAGS) $(CFLAGS) $? $(LDFLAGS) $(LDLIBS)
 
 $(DESTDIR)$(LIBEXECDIR) :
 	mkdir -p $@
@@ -36,7 +38,7 @@ install : all $(DESTDIR)$(LIBEXECDIR)
 
 clean :
 	-rm -rf .libs
-	-rm -f mod_wsgi.o mod_wsgi.la mod_wsgi.lo mod_wsgi.slo mod_wsgi.loT
+	-rm -f *.o *.la *.lo *.slo *.loT
 	-rm -f config.log config.status
 	-rm -rf autom4te.cache
 
