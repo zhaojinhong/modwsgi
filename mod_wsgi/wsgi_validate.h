@@ -1,5 +1,5 @@
-#ifndef WSGI_CONVERT_H
-#define WSGI_CONVERT_H
+#ifndef WSGI_VALIDATE_H
+#define WSGI_VALIDATE_H
 
 /* ------------------------------------------------------------------------- */
 
@@ -25,9 +25,9 @@
 
 /* ------------------------------------------------------------------------- */
 
-extern PyObject *wsgi_convert_string_to_bytes(PyObject *value);
-extern PyObject *wsgi_convert_status_line_to_bytes(PyObject *headers);
-extern PyObject *wsgi_convert_headers_to_bytes(PyObject *headers);
+extern int wsgi_validate_status_line(PyObject *value);
+extern int wsgi_validate_header_name(PyObject *value);
+extern int wsgi_validate_header_value(PyObject *value);
 
 /* ------------------------------------------------------------------------- */
 

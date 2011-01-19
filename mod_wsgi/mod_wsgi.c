@@ -1,4 +1,4 @@
-/* vi: set sw=4 expandtab : */
+/* ------------------------------------------------------------------------- */
 
 /*
  * Copyright 2007-2011 GRAHAM DUMPLETON
@@ -16,171 +16,13 @@
  * limitations under the License.
  */
 
-/*
- * Enabled access to Apache private API and data structures. Need to do
- * this to access the following:
- *
- *   In Apache 1.3 it is not possible to access ap_check_cmd_context()
- *   where as this was made public in Apache 2.0.
- *
- *   In Apache 2.X need access to ap_create_request_config().
- *
- *   In Apache 2.X need access to core_module and core_request_config.
- *
- */
+/* ------------------------------------------------------------------------- */
 
-#define CORE_PRIVATE 1
-
-#include "httpd.h"
-
-#if !defined(HTTPD_ROOT)
-#error Sorry, Apache developer package does not appear to be installed.
-#endif
-
-#if !defined(AP_SERVER_MAJORVERSION_NUMBER)
-#if AP_MODULE_MAGIC_AT_LEAST(20010224,0)
-#define AP_SERVER_MAJORVERSION_NUMBER 2
-#define AP_SERVER_MINORVERSION_NUMBER 0
-#define AP_SERVER_PATCHLEVEL_NUMBER 0
-#else
-#define AP_SERVER_MAJORVERSION_NUMBER 1
-#define AP_SERVER_MINORVERSION_NUMBER 3
-#define AP_SERVER_PATCHLEVEL_NUMBER 0
-#endif
-#endif
-
-#if !defined(AP_SERVER_BASEVERSION)
-#define AP_SERVER_BASEVERSION SERVER_BASEVERSION
-#endif
-
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-#error Sorry, mod_wsgi 4.0+ requires Apache 2.0+.
-#endif
-
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-typedef int apr_status_t;
-#define APR_SUCCESS 0
-typedef pool apr_pool_t;
-typedef unsigned int apr_port_t;
-#include "ap_ctype.h"
-#include "ap_alloc.h"
-#define apr_isspace ap_isspace
-#define apr_table_make ap_make_table
-#define apr_table_get ap_table_get
-#define apr_table_set ap_table_set
-#define apr_table_setn ap_table_setn
-#define apr_table_add ap_table_add
-#define apr_table_elts ap_table_elts
-#define apr_array_make ap_make_array
-#define apr_array_push ap_push_array
-#define apr_array_cat ap_array_cat
-#define apr_array_append ap_append_arrays
-typedef array_header apr_array_header_t;
-typedef table apr_table_t;
-typedef table_entry apr_table_entry_t;
-typedef int apr_size_t;
-typedef unsigned long apr_off_t;
-#define apr_psprintf ap_psprintf
-#define apr_pstrndup ap_pstrndup
-#define apr_pstrdup ap_pstrdup
-#define apr_pstrcat ap_pstrcat
-#define apr_pcalloc ap_pcalloc
-#define apr_palloc ap_palloc
-#define apr_isalnum isalnum
-#define apr_toupper toupper
-typedef time_t apr_time_t;
-#include "http_config.h"
-typedef int apr_lockmech_e;
-#else
-#include "apr_lib.h"
-#include "ap_mpm.h"
-#include "ap_compat.h"
-#include "apr_tables.h"
-#include "apr_strings.h"
-#include "http_config.h"
-#include "ap_listen.h"
-#include "apr_version.h"
-
-#include "apr_optional.h"
-
-APR_DECLARE_OPTIONAL_FN(int, ssl_is_https, (conn_rec *));
-APR_DECLARE_OPTIONAL_FN(char *, ssl_var_lookup, (apr_pool_t *,
-      server_rec *, conn_rec *, request_rec *, char *));
-
-#endif
-
-#include "ap_config.h"
-#include "http_core.h"
-#include "http_log.h"
-#include "http_main.h"
-#include "http_protocol.h"
-#include "http_request.h"
-#include "util_script.h"
-#include "util_md5.h"
-
-#ifndef APR_FPROT_GWRITE
-#define APR_FPROT_GWRITE APR_GWRITE
-#endif
-#ifndef APR_FPROT_WWRITE
-#define APR_FPROT_WWRITE APR_WWRITE
-#endif
-
-#if !AP_MODULE_MAGIC_AT_LEAST(20050127,0)
-/* Debian backported ap_regex_t to Apache 2.0 and
- * thus made official version checking break. */
-#ifndef AP_REG_EXTENDED
-typedef regex_t ap_regex_t;
-typedef regmatch_t ap_regmatch_t;
-#define AP_REG_EXTENDED REG_EXTENDED
-#endif
-#endif
-
-#if !AP_MODULE_MAGIC_AT_LEAST(20081201,0)
-#define ap_unixd_config unixd_config
-#endif
+#include "wsgi_apache.h"
+#include "wsgi_python.h"
 
 #ifndef WIN32
 #include <pwd.h>
-#endif
-
-#include "Python.h"
-
-#if !defined(PY_VERSION_HEX)
-#error Sorry, Python developer package does not appear to be installed.
-#endif
-
-#if PY_VERSION_HEX <= 0x02030000
-#error Sorry, mod_wsgi requires at least Python 2.3.0 for Python 2.X.
-#endif
-
-#if PY_VERSION_HEX >= 0x03000000 && PY_VERSION_HEX < 0x03010000
-#error Sorry, mod_wsgi requires at least Python 3.1.0 for Python 3.X.
-#endif
-
-#if !defined(WITH_THREAD)
-#error Sorry, mod_wsgi requires that Python supporting thread.
-#endif
-
-#include "structmember.h"
-#include "compile.h"
-#include "node.h"
-#include "osdefs.h"
-
-#ifndef PyVarObject_HEAD_INIT
-#define PyVarObject_HEAD_INIT(type, size)       \
-        PyObject_HEAD_INIT(type) size,
-#endif
-
-#if PY_MAJOR_VERSION >= 3
-#define PyStringObject PyBytesObject
-#define PyString_Check PyBytes_Check
-#define PyString_Size PyBytes_Size
-#define PyString_AsString PyBytes_AsString
-#define PyString_FromString PyBytes_FromString
-#define PyString_FromStringAndSize PyBytes_FromStringAndSize
-#define PyString_AS_STRING PyBytes_AS_STRING
-#define PyString_GET_SIZE PyBytes_GET_SIZE
-#define _PyString_Resize _PyBytes_Resize
 #endif
 
 #ifndef WIN32
@@ -216,155 +58,10 @@ static PyTypeObject Auth_Type;
 #endif
 #endif
 
-#if defined(MOD_WSGI_WITH_DAEMONS)
-
-#if !AP_MODULE_MAGIC_AT_LEAST(20051115,0)
-static void ap_close_listeners(void)
-{
-    ap_listen_rec *lr;
-
-    for (lr = ap_listeners; lr; lr = lr->next) {
-        apr_socket_close(lr->sd);
-        lr->active = 0;
-    }
-}
-#endif
-
-#if (APR_MAJOR_VERSION == 0) && \
-    (APR_MINOR_VERSION == 9) && \
-    (APR_PATCH_VERSION < 5)
-static apr_status_t apr_unix_file_cleanup(void *thefile)
-{
-    apr_file_t *file = thefile;
-
-    return apr_file_close(file);
-}
-
-static apr_status_t apr_os_pipe_put_ex(apr_file_t **file,
-                                       apr_os_file_t *thefile,
-                                       int register_cleanup,
-                                       apr_pool_t *pool)
-{
-    apr_status_t rv;
-
-    rv = apr_os_pipe_put(file, thefile, pool);
-
-    if (register_cleanup) {
-        apr_pool_cleanup_register(pool, (void *)(*file),
-                                  apr_unix_file_cleanup,
-                                  apr_pool_cleanup_null);
-    }
-
-    return rv;
-}
-#endif
-
-#endif
-
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-
-static char *apr_off_t_toa(apr_pool_t *p, apr_off_t n)
-{
-    const int BUFFER_SIZE = sizeof(apr_off_t) * 3 + 2;
-    char *buf = apr_palloc(p, BUFFER_SIZE);
-    char *start = buf + BUFFER_SIZE - 1;
-    int negative;
-    if (n < 0) {
-        negative = 1;
-        n = -n;
-    }
-    else {
-        negative = 0;
-    }
-    *start = 0;
-    do {
-        *--start = '0' + (char)(n % 10);
-        n /= 10;
-    } while (n);
-    if (negative) {
-        *--start = '-';
-    }
-    return start;
-}
-
-#endif
-
-#if defined(WIN32) && defined(APR_HAS_UNICODE_FS)
-typedef apr_uint16_t apr_wchar_t;
-
-APR_DECLARE(apr_status_t) apr_conv_utf8_to_ucs2(const char *in,
-                                                apr_size_t *inbytes,
-                                                apr_wchar_t *out,
-                                                apr_size_t *outwords);
-
-static apr_status_t wsgi_utf8_to_unicode_path(apr_wchar_t* retstr,
-                                              apr_size_t retlen, 
-                                              const char* srcstr)
-{
-    /* TODO: The computations could preconvert the string to determine
-     * the true size of the retstr, but that's a memory over speed
-     * tradeoff that isn't appropriate this early in development.
-     *
-     * Allocate the maximum string length based on leading 4 
-     * characters of \\?\ (allowing nearly unlimited path lengths) 
-     * plus the trailing null, then transform /'s into \\'s since
-     * the \\?\ form doesn't allow '/' path seperators.
-     *
-     * Note that the \\?\ form only works for local drive paths, and
-     * \\?\UNC\ is needed UNC paths.
-     */
-    apr_size_t srcremains = strlen(srcstr) + 1;
-    apr_wchar_t *t = retstr;
-    apr_status_t rv;
-
-    /* This is correct, we don't twist the filename if it is will
-     * definately be shorter than 248 characters.  It merits some 
-     * performance testing to see if this has any effect, but there
-     * seem to be applications that get confused by the resulting
-     * Unicode \\?\ style file names, especially if they use argv[0]
-     * or call the Win32 API functions such as GetModuleName, etc.
-     * Not every application is prepared to handle such names.
-     * 
-     * Note also this is shorter than MAX_PATH, as directory paths 
-     * are actually limited to 248 characters. 
-     *
-     * Note that a utf-8 name can never result in more wide chars
-     * than the original number of utf-8 narrow chars.
-     */
-    if (srcremains > 248) {
-        if (srcstr[1] == ':' && (srcstr[2] == '/' || srcstr[2] == '\\')) {
-            wcscpy (retstr, L"\\\\?\\");
-            retlen -= 4;
-            t += 4;
-        }
-        else if ((srcstr[0] == '/' || srcstr[0] == '\\')
-              && (srcstr[1] == '/' || srcstr[1] == '\\')
-              && (srcstr[2] != '?')) {
-            /* Skip the slashes */
-            srcstr += 2;
-            srcremains -= 2;
-            wcscpy (retstr, L"\\\\?\\UNC\\");
-            retlen -= 8;
-            t += 8;
-        }
-    }
-
-    if (rv = apr_conv_utf8_to_ucs2(srcstr, &srcremains, t, &retlen)) {
-        return (rv == APR_INCOMPLETE) ? APR_EINVAL : rv;
-    }
-    if (srcremains) {
-        return APR_ENAMETOOLONG;
-    }
-    for (; *t; ++t)
-        if (*t == L'/')
-            *t = L'\\';
-    return APR_SUCCESS;
-}
-#endif
-
 /* Local project header files. */
 
 #include "wsgi_convert.h"
+#include "wsgi_validate.h"
 
 /* Compatibility macros for log level and status. */
 
@@ -2941,14 +2638,14 @@ static void Adapter_dealloc(AdapterObject *self)
 
 static PyObject *Adapter_start_response(AdapterObject *self, PyObject *args)
 {
-    const char *status = NULL;
+    PyObject *result = NULL;
+
+    PyObject *status_line = NULL;
     PyObject *headers = NULL;
     PyObject *exc_info = NULL;
 
-    PyObject *item = NULL;
-    PyObject *bytes = NULL;
-
-    char* value = NULL;
+    PyObject *status_line_as_bytes = NULL;
+    PyObject *headers_as_bytes = NULL;
 
     if (!self->r) {
         PyErr_SetString(PyExc_RuntimeError, "request object has expired");
@@ -2956,16 +2653,11 @@ static PyObject *Adapter_start_response(AdapterObject *self, PyObject *args)
     }
 
     if (!PyArg_ParseTuple(args, "OO!|O!:start_response",
-        &item, &PyList_Type, &headers, &PyTuple_Type, &exc_info)) {
+        &status_line, &PyList_Type, &headers, &PyTuple_Type, &exc_info)) {
         return NULL;
     }
 
-    bytes = wsgi_latin1string_to_bytes(item);
-
-    if (!bytes)
-        return NULL;
-
-    status = PyString_AsString(bytes);
+    /* XXX Check this. */
 
     if (exc_info && exc_info != Py_None) {
         if (self->status_line && !self->headers) {
@@ -2975,7 +2667,6 @@ static PyObject *Adapter_start_response(AdapterObject *self, PyObject *args)
 
             if (!PyArg_ParseTuple(exc_info, "OOO", &type,
                                   &value, &traceback)) {
-                Py_DECREF(bytes);
                 return NULL;
             }
 
@@ -2985,45 +2676,39 @@ static PyObject *Adapter_start_response(AdapterObject *self, PyObject *args)
 
             PyErr_Restore(type, value, traceback);
 
-            Py_DECREF(bytes);
-
             return NULL;
         }
     }
     else if (self->status_line && !self->headers) {
         PyErr_SetString(PyExc_RuntimeError, "headers have already been sent");
-        Py_DECREF(bytes);
         return NULL;
     }
 
-    self->status_line = apr_pstrdup(self->r->pool, status);
+    status_line_as_bytes = wsgi_convert_status_line_to_bytes(status_line);
 
-    value = ap_getword(self->r->pool, &status, ' ');
+    if (!status_line_as_bytes)
+        goto finally;
 
-    errno = 0;
-    self->status = strtol(value, &value, 10);
+    headers_as_bytes = wsgi_convert_headers_to_bytes(headers);
 
-    if (*value || errno == ERANGE) {
-        PyErr_SetString(PyExc_TypeError, "status value is not an integer");
-        Py_DECREF(bytes);
-        return NULL;
-    }
+    if (!headers_as_bytes)
+        goto finally;
 
-    if (!*status) {
-        PyErr_SetString(PyExc_ValueError, "status message was not supplied");
-        Py_DECREF(bytes);
-        return NULL;
-    }
+    self->status_line = apr_pstrdup(self->r->pool, PyString_AsString(
+                                    status_line_as_bytes));
+    self->status = strtol(self->status_line, NULL, 10);
 
     Py_XDECREF(self->headers);
+    self->headers = headers_as_bytes;
+    Py_INCREF(headers_as_bytes);
 
-    self->headers = headers;
+    result = PyObject_GetAttrString((PyObject *)self, "write");
 
-    Py_INCREF(self->headers);
+finally:
+    Py_XDECREF(status_line_as_bytes);
+    Py_XDECREF(headers_as_bytes);
 
-    Py_DECREF(bytes);
-
-    return PyObject_GetAttrString((PyObject *)self, "write");
+    return result;
 }
 
 static int Adapter_output(AdapterObject *self, const char *data, int length,
@@ -3093,7 +2778,13 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
 
 #endif
 
-        /* Now setup response headers in request object. */
+        /*
+	 * Now setup the response headers in request object. We
+	 * have already converted any native strings in the
+	 * headers to byte strings and validated the format of
+	 * the header names and values so can skip all the error
+	 * checking.
+         */
 
         r->status = self->status;
         r->status_line = self->status_line;
@@ -3109,77 +2800,11 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
 
             tuple = PyList_GetItem(self->headers, i);
 
-            if (!PyTuple_Check(tuple)) {
-                PyErr_Format(PyExc_TypeError, "list of tuple values "
-                             "expected, value of type %.200s found",
-                             tuple->ob_type->tp_name);
-                return 0;
-            }
-
-            if (PyTuple_Size(tuple) != 2) {
-                PyErr_Format(PyExc_ValueError, "tuple of length 2 "
-                             "expected, length is %d",
-                             (int)PyTuple_Size(tuple));
-                return 0;
-            }
-
             object1 = PyTuple_GetItem(tuple, 0);
             object2 = PyTuple_GetItem(tuple, 1);
 
-            if (PyString_Check(object1)) {
-                name = PyString_AsString(object1);
-            }
-#if PY_MAJOR_VERSION >= 3
-            else if (PyUnicode_Check(object1)) {
-                PyObject *latin_object;
-                latin_object = PyUnicode_AsLatin1String(object1);
-                if (!latin_object) {
-                    PyErr_Format(PyExc_TypeError, "header name "
-                                 "contained non 'latin-1' characters ");
-                    return 0;
-                }
-
-                name = apr_pstrdup(r->pool, PyString_AsString(latin_object));
-                Py_DECREF(latin_object);
-            }
-#endif
-            else {
-                PyErr_Format(PyExc_TypeError, "expected byte string object "
-                             "for header name, value of type %.200s "
-                             "found", object1->ob_type->tp_name);
-                return 0;
-            }
-
-            if (PyString_Check(object2)) {
-                value = PyString_AsString(object2);
-            }
-#if PY_MAJOR_VERSION >= 3
-            else if (PyUnicode_Check(object2)) {
-                PyObject *latin_object;
-                latin_object = PyUnicode_AsLatin1String(object2);
-                if (!latin_object) {
-                    PyErr_Format(PyExc_TypeError, "header value "
-                                 "contained non 'latin-1' characters ");
-                    return 0;
-                }
-
-                value = apr_pstrdup(r->pool, PyString_AsString(latin_object));
-                Py_DECREF(latin_object);
-            }
-#endif
-            else {
-                PyErr_Format(PyExc_TypeError, "expected byte string object "
-                             "for header value, value of type %.200s "
-                             "found", object2->ob_type->tp_name);
-                return 0;
-            }
-
-            if (strchr(name, '\n') != 0 || strchr(value, '\n') != 0) {
-                PyErr_Format(PyExc_ValueError, "embedded newline in "
-                             "response header with name '%s' and value '%s'",
-                             name, value);
-                return 0;
-            }
+            name = PyBytes_AsString(object1);
+            value = PyBytes_AsString(object2);
 
             if (!strcasecmp(name, "Content-Type")) {
 #if AP_SERVER_MAJORVERSION_NUMBER < 2
@@ -15907,3 +15532,7 @@ module AP_MODULE_DECLARE_DATA wsgi_module = {
 };
 
 #endif
+
+/* ------------------------------------------------------------------------- */
+
+/* vi: set sw=4 expandtab : */
