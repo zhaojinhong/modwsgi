@@ -8,7 +8,7 @@ def application(environ, start_response):
                         ('Content-length', str(len(string.ascii_lowercase)/4))]
     start_response(status, response_headers)
     
-    filelike = file('/tmp/filetest.txt', 'w+')
+    filelike = open('/tmp/filetest.txt', 'w+')
     filelike.write(string.ascii_lowercase)
     filelike.flush()
     

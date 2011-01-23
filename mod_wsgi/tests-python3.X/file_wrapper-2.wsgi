@@ -1,4 +1,4 @@
-import os
+import io
 import string
 
 def application(environ, start_response):
@@ -7,10 +7,6 @@ def application(environ, start_response):
     response_headers = [('Content-type', 'text/plain')]
     start_response(status, response_headers)
 
-    filelike = open('/tmp/filetest.txt', 'w')
-    filelike.write(string.ascii_lowercase)
-    filelike.close()
-
-    filelike = open('/tmp/filetest.txt', 'r')
+    filelike = io.StringIO(string.ascii_lowercase)
 
     return environ['wsgi.file_wrapper'](filelike)
