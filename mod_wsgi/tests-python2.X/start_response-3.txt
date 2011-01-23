@@ -1,0 +1,7 @@
+Browser should display:
+
+  500 Internal Server Error
+
+Error in Apache error log should be:
+
+  ValueError: status code is not a 3 digit integer
