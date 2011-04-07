@@ -2779,11 +2779,11 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
 #endif
 
         /*
-	 * Now setup the response headers in request object. We
-	 * have already converted any native strings in the
-	 * headers to byte strings and validated the format of
-	 * the header names and values so can skip all the error
-	 * checking.
+         * Now setup the response headers in request object. We
+         * have already converted any native strings in the
+         * headers to byte strings and validated the format of
+         * the header names and values so can skip all the error
+         * checking.
          */
 
         r->status = self->status;
@@ -4393,6 +4393,17 @@ static InterpreterObject *newInterpreterObject(const char *name)
     }
 
     /*
+     * Force loading of codecs into interpreter. This has to be
+     * done as not otherwise done in sub interpreters and if not
+     * done, code running in sub interpreters can fail on some
+     * platforms if a unicode string is added in sys.path and an
+     * import then done.
+     */
+
+    item = PyCodec_Encoder("ascii");
+    Py_XDECREF(item);
+
+    /*
      * If running in daemon process, override as appropriate
      * the USER, USERNAME or LOGNAME environment  variables
      * so that they match the user that the process is running
@@ -5030,8 +5041,8 @@ static void Interpreter_dealloc(InterpreterObject *self)
 #endif
 
         /*
-	 * Swap to interpreter thread state that was used when
-	 * the sub interpreter was created.
+         * Swap to interpreter thread state that was used when
+         * the sub interpreter was created.
          */
 
         PyThreadState_Swap(tstate);
@@ -5664,11 +5675,11 @@ static void wsgi_python_init(apr_pool_t *p)
         PyEval_InitThreads();
 
         /*
-	 * We now want to release the GIL. Before we do that
-	 * though we remember what the current thread state is.
-	 * We will use that later to restore the main thread
-	 * state when we want to cleanup interpreters on
-	 * shutdown.
+         * We now want to release the GIL. Before we do that
+         * though we remember what the current thread state is.
+         * We will use that later to restore the main thread
+         * state when we want to cleanup interpreters on
+         * shutdown.
          */
 
         wsgi_main_tstate = PyThreadState_Get();
@@ -9885,13 +9896,13 @@ static void wsgi_manage_process(int reason, void *data, apr_wait_t status)
             int stopping;
 
             /*
-	     * Determine if Apache is being shutdown or not and
-	     * if it is not being shutdown, we will need to
-	     * restart the child daemon process that has died.
-	     * If MPM doesn't support query assume that child
-	     * daemon process shouldn't be restarted. Both
-	     * prefork and worker MPMs support this query so
-	     * should always be okay.
+             * Determine if Apache is being shutdown or not and
+             * if it is not being shutdown, we will need to
+             * restart the child daemon process that has died.
+             * If MPM doesn't support query assume that child
+             * daemon process shouldn't be restarted. Both
+             * prefork and worker MPMs support this query so
+             * should always be okay.
              */
 
             stopping = 1;
@@ -10917,22 +10928,9 @@ static void wsgi_daemon_main(apr_pool_t *p, WSGIDaemonProcess *daemon)
     apr_int32_t poll_count = 0;
 
     /*
-     * Create pipe by which signal handler can notify the main
-     * thread that signal has arrived indicating that process
-     * needs to shutdown.
+     * Setup poll object for listening for shutdown notice from
+     * signal handler.
      */
-
-    rv = apr_file_pipe_create(&wsgi_signal_pipe_in, &wsgi_signal_pipe_out, p);
-
-    if (rv != APR_SUCCESS) {
-        ap_log_error(APLOG_MARK, WSGI_LOG_EMERG(rv), wsgi_server,
-                     "mod_wsgi (pid=%d): Couldn't initialise signal "
-                     "pipe in daemon process '%s'.", getpid(),
-                     daemon->group->name);
-        sleep(20);
-
-        return;
-    }
 
     poll_fd.desc_type = APR_POLL_FILE;
     poll_fd.reqevents = APR_POLLIN;
@@ -11395,8 +11393,27 @@ static int wsgi_start_process(apr_pool_t *p, WSGIDaemonProcess *daemon)
 
         /*
          * Register signal handler to receive shutdown signal
-         * from Apache parent process.
+         * from Apache parent process. We need to first create
+         * pipe by which signal handler can notify the main
+         * thread that signal has arrived indicating that
+         * process needs to shutdown.
          */
+
+        status = apr_file_pipe_create(&wsgi_signal_pipe_in,
+                                      &wsgi_signal_pipe_out, p);
+
+        if (status != APR_SUCCESS) {
+            ap_log_error(APLOG_MARK, WSGI_LOG_EMERG(status), wsgi_server,
+                         "mod_wsgi (pid=%d): Couldn't initialise signal "
+                         "pipe in daemon process '%s'.", getpid(),
+                         daemon->group->name);
+
+            /* Don't die immediately to avoid a fork bomb. */
+
+            sleep(20);
+
+            exit(-1);
+        }
 
         wsgi_daemon_shutdown = 0;
 
