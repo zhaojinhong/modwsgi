@@ -13789,6 +13789,73 @@ static PyObject *Auth_environ(AuthObject *self, const char *group)
     PyDict_SetItemString(vars, "REQUEST_URI", object);
     Py_DECREF(object);
 
+    /*
+     * XXX Apparently webdav does actually do modifications to
+     * the uri and path_info attributes of request and they
+     * could be used as part of authorisation. Not worrying about
+     * repeating slashes for now as that is Apache 1.3, although
+     * maybe also Apache 2.0.
+     */
+
+    if (!strcmp(r->protocol, "INCLUDED")) {
+        value = r->uri;
+#if PY_MAJOR_VERSION >= 3
+        object = PyUnicode_DecodeLatin1(value, strlen(value), NULL);
+#else
+        object = PyString_FromString(value);
+#endif
+        PyDict_SetItemString(vars, "SCRIPT_NAME", object);
+        Py_DECREF(object);
+
+        value = r->path_info ? r->path_info : "";
+#if PY_MAJOR_VERSION >= 3
+        object = PyUnicode_DecodeLatin1(value, strlen(value), NULL);
+#else
+        object = PyString_FromString(value);
+#endif
+        PyDict_SetItemString(vars, "PATH_INFO", object);
+        Py_DECREF(object);
+    }
+    else if (!r->path_info || !*r->path_info) {
+        value = r->uri;
+#if PY_MAJOR_VERSION >= 3
+        object = PyUnicode_DecodeLatin1(value, strlen(value), NULL);
+#else
+        object = PyString_FromString(value);
+#endif
+        PyDict_SetItemString(vars, "SCRIPT_NAME", object);
+        Py_DECREF(object);
+
+        value = "";
+#if PY_MAJOR_VERSION >= 3
+        object = PyUnicode_DecodeLatin1(value, strlen(value), NULL);
+#else
+        object = PyString_FromString(value);
+#endif
+        PyDict_SetItemString(vars, "PATH_INFO", object);
+        Py_DECREF(object);
+    }
+    else {
+        int path_info_start = ap_find_path_info(r->uri, r->path_info);
+        value = apr_pstrndup(r->pool, r->uri, path_info_start);
+#if PY_MAJOR_VERSION >= 3
+        object = PyUnicode_DecodeLatin1(value, strlen(value), NULL);
+#else
+        object = PyString_FromString(value);
+#endif
+        PyDict_SetItemString(vars, "SCRIPT_NAME", object);
+        Py_DECREF(object);
+
+        value = r->path_info ? r->path_info : "";
+#if PY_MAJOR_VERSION >= 3
+        object = PyUnicode_DecodeLatin1(value, strlen(value), NULL);
+#else
+        object = PyString_FromString(value);
+#endif
+        PyDict_SetItemString(vars, "PATH_INFO", object);
+        Py_DECREF(object);
+    }
+
 #if PY_MAJOR_VERSION >= 3
     object = PyUnicode_FromString("");
 #else
