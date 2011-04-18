@@ -1,4 +1,13 @@
+syntax: glob
+
 mod_wsgi/Makefile
 mod_wsgi/Makefile.in
 mod_wsgi/autom4te.cache
+mod_wsgi/config.log
+mod_wsgi/config.status
+mod_wsgi/.libs
+mod_wsgi/*.la
+mod_wsgi/*.lo
+mod_wsgi/*.slo
+
 mod_wsgi-docs/_build/*
