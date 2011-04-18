@@ -34,7 +34,7 @@ class Log(object):
         time.sleep(1)
         self.__errors = []
         for line in self.__fp.readlines():
-            match = re.match(r'(\[[^]]*\]) (\[[^]]*\]) (\[[^]]*\]) (.*)', line)
+            match = re.match(r'(\[[^]]*\]) (\[[^]]*\]) ([^]]*\]) (.*)', line)
             if match:
                 groups = match.groups()
                 line = groups[1] + ' ' + groups[3]
