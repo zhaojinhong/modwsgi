@@ -12,8 +12,11 @@ The sub directories contained within this directory are as follows:
 mod_wsgi - The core Apache module for hosting Python WSGI applications in
 conjunction with the Apache web server.
 
-mod_wsgi - Tests for the mod_wsgi package. Many of these tests are generic
-and could be applied to any WSGI server.
+mod_wsgi-docs - Documentation for the mod_wsgi package. This uses Sphinx
+and will be posted on "http://readthedocs.org".
+
+mod_wsgi-tests - Tests for the mod_wsgi package. Many of these tests are
+generic and could be applied to any WSGI server.
 
 Any official releases of the above packages and corresponding documentation
 can be found at 'http://www.modwsgi.org'.
