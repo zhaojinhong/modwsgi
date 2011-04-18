@@ -1,0 +1,3 @@
+mod_wsgi/Makefile
+mod_wsgi/Makefile.in
+mod_wsgi/autom4te.cache
