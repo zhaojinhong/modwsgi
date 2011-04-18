@@ -11,3 +11,6 @@ mod_wsgi/*.lo
 mod_wsgi/*.slo
 
 mod_wsgi-docs/_build/*
+
+mod_wsgi-tests/python2.X/*.pyc
+mod_wsgi-tests/python3.X/*.pyc

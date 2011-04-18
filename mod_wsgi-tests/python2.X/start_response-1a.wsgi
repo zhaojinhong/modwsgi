@@ -1,3 +1,18 @@
+"""
+
+>>> import _testfuncs
+>>> connection = _testfuncs.connection()
+>>> messages = _testfuncs.messages()
+>>> connection.putrequest('GET', '/start_response-1a.wsgi')
+>>> connection.endheaders()
+>>> response = connection.getresponse()
+>>> response.status
+500
+>>> messages.output(-1)
+'[error] ValueError: status code is not a 3 digit integer'
+
+"""
+
 def application(environ, start_response):
     status = '' 
     output = 'Hello World!'

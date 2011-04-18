@@ -1,3 +1,18 @@
+"""
+
+>>> import _testfuncs
+>>> connection = _testfuncs.connection()
+>>> messages = _testfuncs.messages()
+>>> connection.putrequest('GET', '/start_response-1d.wsgi')
+>>> connection.endheaders()
+>>> response = connection.getresponse()
+>>> response.status
+500
+>>> messages.output(-1)
+'[error] ValueError: no space following status code'
+
+"""
+
 def application(environ, start_response):
     status = '200' 
     output = 'Hello World!'

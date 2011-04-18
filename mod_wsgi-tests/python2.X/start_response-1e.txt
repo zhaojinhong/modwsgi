@@ -1,3 +1,0 @@
-Browser should display:
-
-  Hello World!

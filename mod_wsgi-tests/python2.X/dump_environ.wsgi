@@ -1,3 +1,15 @@
+"""
+
+>>> import _testfuncs
+>>> connection = _testfuncs.connection()
+>>> connection.putrequest('GET', '/dump_environ.wsgi')
+>>> connection.endheaders()
+>>> response = connection.getresponse()
+>>> response.status
+200
+
+"""
+
 import cStringIO
 import os
 

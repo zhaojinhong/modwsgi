@@ -1,7 +1,0 @@
-Browser should display:
-
-  500 Internal Server Error
-
-Error in Apache error log should be:
-
-  TypeError: expected byte string object, value of type NoneType found

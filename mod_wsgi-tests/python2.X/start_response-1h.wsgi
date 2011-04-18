@@ -1,3 +1,18 @@
+"""
+
+>>> import _testfuncs
+>>> connection = _testfuncs.connection()
+>>> messages = _testfuncs.messages()
+>>> connection.putrequest('GET', '/start_response-1h.wsgi')
+>>> connection.endheaders()
+>>> response = connection.getresponse()
+>>> response.status
+500
+>>> messages.output(-1)
+'[error] TypeError: expected byte string object, value of type NoneType found'
+
+"""
+
 def application(environ, start_response):
     status = None
     output = 'Hello World!'

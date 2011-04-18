@@ -1,7 +1,0 @@
-Browser should display:
-
-  500 Internal Server Error
-
-Error in Apache error log should be:
-
-  ValueError: no space following status code
