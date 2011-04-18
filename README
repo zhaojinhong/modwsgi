@@ -2,15 +2,18 @@
 Welcome to the MOD_WSGI project
 ===============================
 
-Copyright 2007-2008 GRAHAM DUMPLETON
+Copyright 2007-2011 GRAHAM DUMPLETON
 
 In order to have got here you must have checked out all code for the
 mod_wsgi project from the trunk of the mod_wsgi source code repository.
 
-The sub packages contained within this directory are as follows:
+The sub directories contained within this directory are as follows:
 
-mod_wsgi - The core Apache module for hosting Python WSGI applications
-in conjunction with the Apache web server.
+mod_wsgi - The core Apache module for hosting Python WSGI applications in
+conjunction with the Apache web server.
+
+mod_wsgi - Tests for the mod_wsgi package. Many of these tests are generic
+and could be applied to any WSGI server.
 
 Any official releases of the above packages and corresponding documentation
 can be found at 'http://www.modwsgi.org'.
