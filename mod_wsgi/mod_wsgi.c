@@ -3489,15 +3489,7 @@ static int Adapter_run(AdapterObject *self, PyObject *object)
 
         if (PyErr_Occurred())
             wsgi_log_python_error(self->r, self->log, self->r->filename);
-
-        Py_DECREF(self->sequence);
-
-        self->sequence = NULL;
     }
-
-    Py_DECREF(args);
-    Py_DECREF(start);
-    Py_DECREF(vars);
 
     /*
      * Log warning if more response content generated than was
@@ -3530,6 +3522,13 @@ static int Adapter_run(AdapterObject *self, PyObject *object)
 
     if (self->result == HTTP_INTERNAL_SERVER_ERROR)
         self->r->status_line = "500 Internal Server Error";
+
+    Py_DECREF(args);
+    Py_DECREF(start);
+    Py_DECREF(vars);
+
+    Py_XDECREF(self->sequence);
+    self->sequence = NULL;
 
     return self->result;
 }
