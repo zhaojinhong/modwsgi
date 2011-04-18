@@ -1,4 +1,4 @@
-#  Copyright 2007 GRAHAM DUMPLETON
+#  Copyright 2007-2011 GRAHAM DUMPLETON
 # 
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -12,29 +12,11 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-APXS =  @APXS@
-PYTHON = @PYTHON@
+all :
+	@echo "Sorry, mod_wsgi 4.0+ requires Apache 2.0+."
+	@exit 1
 
-DESTDIR =
-LIBEXECDIR = @LIBEXECDIR@
-
-CPPFLAGS = @CPPFLAGS@
-CFLAGS = @CFLAGS@
-LDFLAGS = @LDFLAGS@
-LDLIBS = @LDLIBS@
-
-SRCFILES = wsgi_apache.c wsgi_convert.c wsgi_validate.c
-
-all : mod_wsgi.so
-
-mod_wsgi.so : mod_wsgi.c $(SRCFILES)
-	$(APXS) -c $(CPPFLAGS) $(CFLAGS) $< $(SRCFILES) $(LDFLAGS) $(LDLIBS)
-
-$(DESTDIR)$(LIBEXECDIR) :
-	mkdir -p $@
-
-install : all $(DESTDIR)$(LIBEXECDIR)
-	$(APXS) -i -S LIBEXECDIR=$(DESTDIR)$(LIBEXECDIR) -n 'mod_wsgi' mod_wsgi.so
+install : all
 
 clean :
 	-rm -f *.o *.so

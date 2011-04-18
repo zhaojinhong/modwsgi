@@ -26,28 +26,17 @@
 #endif
 
 #ifndef WIN32
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
 #if APR_HAS_OTHER_CHILD && APR_HAS_THREADS && APR_HAS_FORK
 #define MOD_WSGI_WITH_DAEMONS 1
 #endif
 #endif
-#endif
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
-#define MOD_WSGI_WITH_BUCKETS 1
-#define MOD_WSGI_WITH_AAA_HANDLERS 1
-#endif
-
-#if defined(MOD_WSGI_WITH_AAA_HANDLERS)
 static PyTypeObject Auth_Type;
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
 #if AP_SERVER_MINORVERSION_NUMBER >= 2
 #define MOD_WSGI_WITH_AUTHN_PROVIDER 1
 #endif
-#endif
 #if AP_MODULE_MAGIC_AT_LEAST(20060110,0)
 #define MOD_WSGI_WITH_AUTHZ_PROVIDER 1
-#endif
 #endif
 
 #if defined(MOD_WSGI_WITH_AUTHN_PROVIDER)
@@ -65,13 +54,8 @@ static PyTypeObject Auth_Type;
 
 /* Compatibility macros for log level and status. */
 
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-#define WSGI_LOG_LEVEL(l) l
-#define WSGI_LOG_LEVEL_AND_STATUS(l, e) l | (!e ? APLOG_NOERRNO : 0)
-#else
 #define WSGI_LOG_LEVEL(l) l, 0
 #define WSGI_LOG_LEVEL_AND_STATUS(l, e) l, e
-#endif
 
 #define WSGI_LOG_EMERG(e) WSGI_LOG_LEVEL_AND_STATUS(APLOG_EMERG, e)
 #define WSGI_LOG_ALERT(e) WSGI_LOG_LEVEL_AND_STATUS(APLOG_ALERT, e)
@@ -88,11 +72,7 @@ static PyTypeObject Auth_Type;
 #define MOD_WSGI_MINORVERSION_NUMBER 0
 #define MOD_WSGI_VERSION_STRING "4.0-TRUNK"
 
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-module MODULE_VAR_EXPORT wsgi_module;
-#else
 module AP_MODULE_DECLARE_DATA wsgi_module;
-#endif
 
 /* Constants. */
 
@@ -203,9 +183,7 @@ typedef struct {
 
     int enable_sendfile;
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     apr_hash_t *handler_scripts;
-#endif
 } WSGIServerConfig;
 
 static WSGIServerConfig *wsgi_server_config = NULL;
@@ -371,7 +349,6 @@ static void *wsgi_merge_server_config(apr_pool_t *p, void *base_conf,
     else
         config->enable_sendfile = parent->enable_sendfile;
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     if (!child->handler_scripts)
         config->handler_scripts = parent->handler_scripts;
     else if (!parent->handler_scripts)
@@ -380,7 +357,6 @@ static void *wsgi_merge_server_config(apr_pool_t *p, void *base_conf,
         config->handler_scripts = apr_hash_overlay(p, child->handler_scripts,
                                                    parent->handler_scripts);
     }
-#endif
 
     return config;
 }
@@ -410,9 +386,7 @@ typedef struct {
     int user_authoritative;
     int group_authoritative;
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     apr_hash_t *handler_scripts;
-#endif
 } WSGIDirectoryConfig;
 
 static WSGIDirectoryConfig *newWSGIDirectoryConfig(apr_pool_t *p)
@@ -547,7 +521,6 @@ static void *wsgi_merge_dir_config(apr_pool_t *p, void *base_conf,
     else
         config->group_authoritative = parent->group_authoritative;
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     if (!child->handler_scripts)
         config->handler_scripts = parent->handler_scripts;
     else if (!parent->handler_scripts)
@@ -556,7 +529,6 @@ static void *wsgi_merge_dir_config(apr_pool_t *p, void *base_conf,
         config->handler_scripts = apr_hash_overlay(p, child->handler_scripts,
                                                    parent->handler_scripts);
     }
-#endif
 
     return config;
 }
@@ -586,9 +558,7 @@ typedef struct {
     int user_authoritative;
     int group_authoritative;
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     apr_hash_t *handler_scripts;
-#endif
     const char *handler_script;
 } WSGIRequestConfig;
 
@@ -949,7 +919,6 @@ static WSGIRequestConfig *wsgi_create_req_config(apr_pool_t *p, request_rec *r)
     if (config->group_authoritative == -1)
         config->group_authoritative = 1;
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     if (!dconfig->handler_scripts)
         config->handler_scripts = sconfig->handler_scripts;
     else if (!sconfig->handler_scripts)
@@ -958,7 +927,6 @@ static WSGIRequestConfig *wsgi_create_req_config(apr_pool_t *p, request_rec *r)
         config->handler_scripts = apr_hash_overlay(p, dconfig->handler_scripts,
                                                    sconfig->handler_scripts);
     }
-#endif
 
     config->handler_script = "";
 
@@ -1193,26 +1161,18 @@ static void Log_file(LogObject *self, const char *s, int l)
     int plen = 0;
     int slen = 0;
 
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-    FILE *logf;
-#else
     apr_file_t *logf = NULL;
-#endif
 
     if (self->r)
         logf = self->r->server->error_log;
     else
         logf = wsgi_server->error_log;
 
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-    plen = ap_snprintf(errstr, sizeof(errstr), "[%s] ", ap_get_time());
-#else
     errstr[0] = '[';
     ap_recent_ctime(errstr + 1, apr_time_now());
     errstr[1 + APR_CTIME_LEN - 1] = ']';
     errstr[1 + APR_CTIME_LEN    ] = ' ';
     plen = 1 + APR_CTIME_LEN + 1;
-#endif
 
     if (self->target) {
         int len;
@@ -1247,26 +1207,16 @@ static void Log_file(LogObject *self, const char *s, int l)
         if (l > slen) {
             memcpy(errstr+plen, s, slen);
             errstr[plen+slen] = '\n';
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-            fwrite(errstr, plen+slen+1, 1, logf);
-            fflush(logf);
-#else
             apr_file_write_full(logf, errstr, plen+slen+1, NULL);
             apr_file_flush(logf);
-#endif
             s += slen;
             l -= slen;
         }
         else {
             memcpy(errstr+plen, s, l);
             errstr[plen+l] = '\n';
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-            fwrite(errstr, plen+l+1, 1, logf);
-            fflush(logf);
-#else
             apr_file_write_full(logf, errstr, plen+l+1, NULL);
             apr_file_flush(logf);
-#endif
             break;
         }
     }
@@ -2566,9 +2516,7 @@ typedef struct {
         PyObject_HEAD
         int result;
         request_rec *r;
-#if defined(MOD_WSGI_WITH_BUCKETS)
         apr_bucket_brigade *bb;
-#endif
         WSGIRequestConfig *config;
         InputObject *input;
         PyObject *log;
@@ -2603,9 +2551,7 @@ static AdapterObject *newAdapterObject(request_rec *r)
 
     self->r = r;
 
-#if defined(MOD_WSGI_WITH_BUCKETS)
     self->bb = NULL;
-#endif
 
     self->config = (WSGIRequestConfig *)ap_get_module_config(r->request_config,
                                                              &wsgi_module);
@@ -2756,8 +2702,7 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
          * is older.
          */
 
-#if (AP_SERVER_MAJORVERSION_NUMBER == 1) || \
-    (AP_SERVER_MAJORVERSION_NUMBER == 2 && \
+#if (AP_SERVER_MAJORVERSION_NUMBER == 2 && \
      AP_SERVER_MINORVERSION_NUMBER < 2) || \
     (AP_SERVER_MAJORVERSION_NUMBER == 2 && \
      AP_SERVER_MINORVERSION_NUMBER == 2 && \
@@ -2807,9 +2752,6 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
             value = PyBytes_AsString(object2);
 
             if (!strcasecmp(name, "Content-Type")) {
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-                r->content_type = apr_pstrdup(r->pool, value);
-#else
                 /*
                  * In a daemon child process we cannot call the
                  * function ap_set_content_type() as want to
@@ -2823,7 +2765,6 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
                     r->content_type = apr_pstrdup(r->pool, value);
                 else
                     ap_set_content_type(r, value);
-#endif
             }
             else if (!strcasecmp(name, "Content-Length")) {
                 char *v = value;
@@ -2849,12 +2790,6 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
                 apr_table_add(r->headers_out, name, value);
             }
         }
-
-        /* Need to force output of headers when using Apache 1.3. */
-
-        Py_BEGIN_ALLOW_THREADS
-        ap_send_http_header(r);
-        Py_END_ALLOW_THREADS
 
         /*
          * Reset flag indicating whether '100 Continue' response
@@ -2900,7 +2835,6 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
     /* Now output any data. */
 
     if (length) {
-#if defined(MOD_WSGI_WITH_BUCKETS)
         apr_bucket *b;
 
         /*
@@ -2953,32 +2887,6 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
         Py_BEGIN_ALLOW_THREADS
         apr_brigade_cleanup(self->bb);
         Py_END_ALLOW_THREADS
-#else
-        /*
-         * In Apache 1.3, the bucket brigade system doesn't exist,
-         * so have no choice but to use ap_rwrite()/ap_rflush().
-         * It is not believed that Apache 1.3 suffers the memory
-         * accumulation problem when streaming lots of data.
-         */
-
-        Py_BEGIN_ALLOW_THREADS
-        n = ap_rwrite(data, length, r);
-        Py_END_ALLOW_THREADS
-
-        if (n == -1) {
-            PyErr_SetString(PyExc_IOError, "failed to write data");
-            return 0;
-        }
-
-        Py_BEGIN_ALLOW_THREADS
-        n = ap_rflush(r);
-        Py_END_ALLOW_THREADS
-
-        if (n == -1) {
-            PyErr_SetString(PyExc_IOError, "failed to flush data");
-            return 0;
-        }
-#endif
     }
 
     /*
@@ -3006,8 +2914,6 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
 
     return 1;
 }
-
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
 
 /* Split buckets at 1GB when sending large files. */
 
@@ -3087,11 +2993,7 @@ static int Adapter_output_file(AdapterObject *self, apr_file_t* tmpfile,
     return 1;
 }
 
-#endif
-
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
 static APR_OPTIONAL_FN_TYPE(ssl_is_https) *wsgi_is_https = NULL;
-#endif
 
 static PyObject *Adapter_environ(AdapterObject *self)
 {
@@ -3257,7 +3159,6 @@ static PyObject *Adapter_environ(AdapterObject *self)
      */
 
 #if 0
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     if (!wsgi_daemon_pool) {
         object = PyObject_GetAttrString((PyObject *)self, "ssl_is_https");
         PyDict_SetItemString(vars, "mod_ssl.is_https", object);
@@ -3268,7 +3169,6 @@ static PyObject *Adapter_environ(AdapterObject *self)
         Py_DECREF(object);
     }
 #endif
-#endif
 
     return vars;
 }
@@ -3278,8 +3178,6 @@ static int Adapter_process_file_wrapper(AdapterObject *self)
     int done = 0;
 
 #ifndef WIN32
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
-
     PyObject *filelike = NULL;
     PyObject *method = NULL;
     PyObject *object = NULL;
@@ -3483,7 +3381,6 @@ static int Adapter_process_file_wrapper(AdapterObject *self)
 
     apr_file_seek(tmpfile, APR_SET, &fd_offset);
 
-#endif
 #endif
 
     return done;
@@ -3706,8 +3603,6 @@ static PyObject *Adapter_write(AdapterObject *self, PyObject *args)
     return Py_None;
 }
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
-
 static PyObject *Adapter_ssl_is_https(AdapterObject *self, PyObject *args)
 {
     APR_OPTIONAL_FN_TYPE(ssl_is_https) *ssl_is_https = 0;
@@ -3795,15 +3690,11 @@ static PyObject *Adapter_ssl_var_lookup(AdapterObject *self, PyObject *args)
 #endif
 }
 
-#endif
-
 static PyMethodDef Adapter_methods[] = {
     { "start_response", (PyCFunction)Adapter_start_response, METH_VARARGS, 0 },
     { "write",          (PyCFunction)Adapter_write, METH_VARARGS, 0 },
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     { "ssl_is_https",   (PyCFunction)Adapter_ssl_is_https, METH_VARARGS, 0 },
     { "ssl_var_lookup", (PyCFunction)Adapter_ssl_var_lookup, METH_VARARGS, 0 },
-#endif
     { NULL, NULL}
 };
 
@@ -5534,11 +5425,7 @@ static apr_status_t wsgi_python_term()
     return APR_SUCCESS;
 }
 
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-static void wsgi_python_parent_cleanup(void *data)
-#else
 static apr_status_t wsgi_python_parent_cleanup(void *data)
-#endif
 {
     if (wsgi_parent_pid == getpid()) {
         /*
@@ -5552,23 +5439,15 @@ static apr_status_t wsgi_python_parent_cleanup(void *data)
             wsgi_python_term();
     }
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     return APR_SUCCESS;
-#endif
 }
 
 
 static void wsgi_python_init(apr_pool_t *p)
 {
-#if defined(DARWIN) && (AP_SERVER_MAJORVERSION_NUMBER < 2)
-    static int initialized = 0;
-#else
-    static int initialized = 1;
-#endif
-
     /* Perform initialisation if required. */
 
-    if (!Py_IsInitialized() || !initialized) {
+    if (!Py_IsInitialized()) {
 
         /* Enable Python 3.0 migration warnings. */
 
@@ -5666,8 +5545,6 @@ static void wsgi_python_init(apr_pool_t *p)
         ap_log_error(APLOG_MARK, WSGI_LOG_INFO(0), wsgi_server,
                      "mod_wsgi (pid=%d): Initializing Python.", getpid());
 
-        initialized = 1;
-
         Py_Initialize();
 
         /* Initialise threading. */
@@ -5692,13 +5569,8 @@ static void wsgi_python_init(apr_pool_t *p)
          * or shutdown. This will destroy Python itself.
          */
 
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-        ap_register_cleanup(p, NULL, wsgi_python_parent_cleanup,
-                            ap_null_cleanup);
-#else
         apr_pool_cleanup_register(p, NULL, wsgi_python_parent_cleanup,
                                   apr_pool_cleanup_null);
-#endif
     }
 }
 
@@ -6028,15 +5900,6 @@ static PyObject *wsgi_load_source(apr_pool_t *pool, request_rec *r,
         PyObject *object = NULL;
 
         if (!r || strcmp(r->filename, filename)) {
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-            struct stat finfo;
-            if (stat(filename, &finfo) == -1) {
-                object = PyLong_FromLongLong(0);
-            }
-            else {
-                object = PyLong_FromLongLong(finfo.st_mtime);
-            }
-#else
             apr_finfo_t finfo;
             if (apr_stat(&finfo, filename, APR_FINFO_NORM,
                          pool) != APR_SUCCESS) {
@@ -6045,14 +5908,9 @@ static PyObject *wsgi_load_source(apr_pool_t *pool, request_rec *r,
             else {
                 object = PyLong_FromLongLong(finfo.mtime);
             }
-#endif
         }
         else {
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-            object = PyLong_FromLongLong(r->finfo.st_mtime);
-#else
             object = PyLong_FromLongLong(r->finfo.mtime);
-#endif
         }
         PyModule_AddObject(m, "__mtime__", object);
     }
@@ -6091,15 +5949,6 @@ static int wsgi_reload_required(apr_pool_t *pool, request_rec *r,
         mtime = PyLong_AsLongLong(object);
 
         if (!r || strcmp(r->filename, filename)) {
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-            struct stat finfo;
-            if (stat(filename, &finfo) == -1) {
-                return 1;
-            }
-            else if (mtime != finfo.st_mtime) {
-                return 1;
-            }
-#else
             apr_finfo_t finfo;
             if (apr_stat(&finfo, filename, APR_FINFO_NORM,
                          pool) != APR_SUCCESS) {
@@ -6108,16 +5957,10 @@ static int wsgi_reload_required(apr_pool_t *pool, request_rec *r,
             else if (mtime != finfo.mtime) {
                 return 1;
             }
-#endif
         }
         else {
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-            if (mtime != r->finfo.st_mtime)
-                return 1;
-#else
             if (mtime != r->finfo.mtime)
                 return 1;
-#endif
         }
     }
     else
@@ -6470,9 +6313,7 @@ static int wsgi_execute_script(request_rec *r)
                 Py_XDECREF(object);
                 Py_XDECREF(method);
 
-#if defined(MOD_WSGI_WITH_BUCKETS)
                 adapter->bb = NULL;
-#endif
             }
 
             Py_XDECREF((PyObject *)adapter);
@@ -6510,11 +6351,7 @@ static int wsgi_execute_script(request_rec *r)
  * function to delete interpreter on process shutdown.
  */
 
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-static void wsgi_python_child_cleanup(void *data)
-#else
 static apr_status_t wsgi_python_child_cleanup(void *data)
-#endif
 {
     PyObject *interp = NULL;
 
@@ -6586,9 +6423,7 @@ static apr_status_t wsgi_python_child_cleanup(void *data)
     if (wsgi_python_initialized)
         wsgi_python_term();
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     return APR_SUCCESS;
-#endif
 }
 
 static void wsgi_python_child_init(apr_pool_t *p)
@@ -6623,10 +6458,7 @@ static void wsgi_python_child_init(apr_pool_t *p)
     PyType_Ready(&Restricted_Type);
     PyType_Ready(&Interpreter_Type);
     PyType_Ready(&Dispatch_Type);
-
-#if defined(MOD_WSGI_WITH_AAA_HANDLERS)
     PyType_Ready(&Auth_Type);
-#endif
 
     /* Initialise Python interpreter instance table and lock. */
 
@@ -6673,13 +6505,8 @@ static void wsgi_python_child_init(apr_pool_t *p)
 
     /* Register cleanups to performed on process shutdown. */
 
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-    ap_register_cleanup(p, NULL, wsgi_python_child_cleanup,
-                        ap_null_cleanup);
-#else
     apr_pool_cleanup_register(p, NULL, wsgi_python_child_cleanup,
                               apr_pool_cleanup_null);
-#endif
 
     /* Loop through import scripts for this process and load them. */
 
@@ -7842,7 +7669,6 @@ static const char *wsgi_set_group_authoritative(cmd_parms *cmd, void *mconfig,
     return NULL;
 }
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
 static const char *wsgi_add_handler_script(cmd_parms *cmd, void *mconfig,
                                            const char *args)
 {
@@ -7921,7 +7747,6 @@ static const char *wsgi_add_handler_script(cmd_parms *cmd, void *mconfig,
 
     return NULL;
 }
-#endif
 
 /* Handler for the translate name phase. */
 
@@ -8106,24 +7931,17 @@ static void wsgi_build_environment(request_rec *r)
      * might change the content and/or headers.
      */
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     if (r->method_number == M_GET && r->header_only &&
         r->output_filters->frec->ftype < AP_FTYPE_PROTOCOL)
         apr_table_setn(r->subprocess_env, "REQUEST_METHOD", "GET");
-#else
-    if (r->method_number == M_GET && r->header_only)
-        apr_table_setn(r->subprocess_env, "REQUEST_METHOD", "GET");
-#endif
 
     /* Determine whether connection uses HTTPS protocol. */
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     if (!wsgi_is_https)
         wsgi_is_https = APR_RETRIEVE_OPTIONAL_FN(ssl_is_https);
 
     if (wsgi_is_https && wsgi_is_https(r->connection))
         apr_table_set(r->subprocess_env, "HTTPS", "1");
-#endif
 
     /*
      * If enabled, pass along authorisation headers which Apache
@@ -8341,7 +8159,6 @@ static PyObject *Dispatch_environ(DispatchObject *self, const char *group)
      */
 
 #if 0
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     object = PyObject_GetAttrString((PyObject *)self, "ssl_is_https");
     PyDict_SetItemString(vars, "mod_ssl.is_https", object);
     Py_DECREF(object);
@@ -8350,12 +8167,9 @@ static PyObject *Dispatch_environ(DispatchObject *self, const char *group)
     PyDict_SetItemString(vars, "mod_ssl.var_lookup", object);
     Py_DECREF(object);
 #endif
-#endif
 
     return vars;
 }
-
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
 
 static PyObject *Dispatch_ssl_is_https(DispatchObject *self, PyObject *args)
 {
@@ -8444,13 +8258,9 @@ static PyObject *Dispatch_ssl_var_lookup(DispatchObject *self, PyObject *args)
 #endif
 }
 
-#endif
-
 static PyMethodDef Dispatch_methods[] = {
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     { "ssl_is_https",   (PyCFunction)Dispatch_ssl_is_https, METH_VARARGS, 0 },
     { "ssl_var_lookup", (PyCFunction)Dispatch_ssl_var_lookup, METH_VARARGS, 0 },
-#endif
     { NULL, NULL}
 };
 
@@ -8976,33 +8786,17 @@ static int wsgi_hook_handler(request_rec *r)
 
         /* Ensure target script exists and is a file. */
 
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-        if (r->finfo.st_mode == 0) {
-            wsgi_log_script_error(r, "Target WSGI script not found or unable "
-                                  "to stat", r->filename);
-            return HTTP_NOT_FOUND;
-        }
-#else
         if (r->finfo.filetype == 0) {
             wsgi_log_script_error(r, "Target WSGI script not found or unable "
                                   "to stat", r->filename);
             return HTTP_NOT_FOUND;
         }
-#endif
 
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-        if (S_ISDIR(r->finfo.st_mode)) {
-            wsgi_log_script_error(r, "Attempt to invoke directory as WSGI "
-                                  "application", r->filename);
-            return HTTP_FORBIDDEN;
-        }
-#else
         if (r->finfo.filetype == APR_DIR) {
             wsgi_log_script_error(r, "Attempt to invoke directory as WSGI "
                                   "application", r->filename);
             return HTTP_FORBIDDEN;
         }
-#endif
 
         if (wsgi_is_script_aliased(r)) {
             /*
@@ -9027,7 +8821,6 @@ static int wsgi_hook_handler(request_rec *r)
             }
         }
     }
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
 #if 0
     else if (strstr(r->handler, "wsgi-handler=") == r->handler) {
         config->handler_script = apr_pstrcat(r->pool, r->handler+13, NULL);
@@ -9060,14 +8853,12 @@ static int wsgi_hook_handler(request_rec *r)
         else
             return DECLINED;
     }
-#endif
     else
         return DECLINED;
 
     /*
-     * For Apache 2.0+ honour AcceptPathInfo directive. Default
-     * behaviour is accept additional path information. Under
-     * Apache 1.3, WSGI application would need to check itself.
+     * Honour AcceptPathInfo directive. Default behaviour is
+     * accept additional path information.
      */
 
 #if AP_MODULE_MAGIC_AT_LEAST(20011212,0)
@@ -9162,195 +8953,6 @@ static int wsgi_hook_handler(request_rec *r)
 
     return wsgi_execute_script(r);
 }
-
-#if AP_SERVER_MAJORVERSION_NUMBER < 2
-
-/*
- * Apache 1.3 module initialisation functions.
- */
-
-static void wsgi_hook_init(server_rec *s, apr_pool_t *p)
-{
-    char package[128];
-
-    /* Setup module version information. */
-
-    sprintf(package, "mod_wsgi/%s", MOD_WSGI_VERSION_STRING);
-
-    ap_add_version_component(package);
-
-    /* Record Python version string with Apache. */
-
-    if (!Py_IsInitialized()) {
-        char buffer[256];
-        const char *token = NULL;
-        const char *version = NULL;
-        
-        version = Py_GetVersion();
-
-        token = version;
-        while (*token && *token != ' ')
-            token++;
-
-        strcpy(buffer, "Python/");
-        strncat(buffer, version, token - version);
-
-        ap_add_version_component(buffer);
-    }
-
-    /* Retain reference to base server. */
-
-    wsgi_server = s;
-
-    /* Retain record of parent process ID. */
-
-    wsgi_parent_pid = getpid();
-
-    /* Determine whether multiprocess and/or multithreaded. */
-
-    wsgi_multiprocess = 1;
-    wsgi_multithread = 0;
-
-    /* Retain reference to main server config. */
-
-    wsgi_server_config = ap_get_module_config(s->module_config, &wsgi_module);
-
-    /*
-     * Check that the version of Python found at
-     * runtime is what was used at compilation.
-     */
-
-    wsgi_python_version();
-
-    /*
-     * Initialise Python if required to be done in
-     * the parent process. Note that it will not be
-     * initialised if mod_python loaded and it has
-     * already been done.
-     */
-
-    if (!wsgi_python_after_fork)
-        wsgi_python_init(p);
-}
-
-static void wsgi_hook_child_init(server_rec *s, apr_pool_t *p)
-{
-    if (wsgi_python_required) {
-        /*
-         * Initialise Python if required to be done in
-         * the child process. Note that it will not be
-         * initialised if mod_python loaded and it has
-         * already been done.
-         */
-
-        if (wsgi_python_after_fork)
-            wsgi_python_init(p);
-
-        /*
-         * Now perform additional initialisation steps
-         * always done in child process.
-         */
-
-        wsgi_python_child_init(p);
-    }
-}
-
-/* Dispatch list of content handlers */
-static const handler_rec wsgi_handlers[] = {
-    { "wsgi-script", wsgi_hook_handler },
-    { "application/x-httpd-wsgi", wsgi_hook_handler },
-    { NULL, NULL }
-};
-
-static const command_rec wsgi_commands[] =
-{
-    { "WSGIScriptAlias", wsgi_add_script_alias, NULL,
-        RSRC_CONF, RAW_ARGS, "Map location to target WSGI script file." },
-    { "WSGIScriptAliasMatch", wsgi_add_script_alias, "*",
-        RSRC_CONF, RAW_ARGS, "Map location to target WSGI script file." },
-
-    { "WSGIVerboseDebugging", wsgi_set_verbose_debugging, NULL,
-        RSRC_CONF, TAKE1, "Enable/Disable verbose debugging messages." },
-
-#if PY_MAJOR_VERSION == 2 && PY_MINOR_VERSION >= 6
-    { "WSGIPy3kWarningFlag", wsgi_set_py3k_warning_flag, NULL,
-        RSRC_CONF, TAKE1, "Enable/Disable Python 3.0 warnings." },
-    { "WSGIDontWriteBytecode", wsgi_set_dont_write_bytecode, NULL,
-        RSRC_CONF, TAKE1, "Enable/Disable writing of byte code." },
-#endif
-
-    { "WSGIPythonWarnings", wsgi_add_python_warnings, NULL,
-        RSRC_CONF, TAKE1, "Control Python warning messages." },
-    { "WSGIPythonOptimize", wsgi_set_python_optimize, NULL,
-        RSRC_CONF, TAKE1, "Set level of Python compiler optimisations." },
-    { "WSGIPythonHome", wsgi_set_python_home, NULL,
-        RSRC_CONF, TAKE1, "Python prefix/exec_prefix absolute path names." },
-    { "WSGIPythonPath", wsgi_set_python_path, NULL,
-        RSRC_CONF, TAKE1, "Python module search path." },
-    { "WSGIPythonEggs", wsgi_set_python_eggs, NULL,
-        RSRC_CONF, TAKE1, "Python eggs cache directory." },
-
-    { "WSGIRestrictStdin", wsgi_set_restrict_stdin, NULL,
-        RSRC_CONF, TAKE1, "Enable/Disable restrictions on use of STDIN." },
-    { "WSGIRestrictStdout", wsgi_set_restrict_stdout, NULL,
-        RSRC_CONF, TAKE1, "Enable/Disable restrictions on use of STDOUT." },
-    { "WSGIRestrictSignal", wsgi_set_restrict_signal, NULL,
-        RSRC_CONF, TAKE1, "Enable/Disable restrictions on use of signal()." },
-
-    { "WSGICaseSensitivity", wsgi_set_case_sensitivity, NULL,
-        RSRC_CONF, TAKE1, "Define whether file system is case sensitive." },
-
-    { "WSGIApplicationGroup", wsgi_set_application_group, NULL,
-        ACCESS_CONF|RSRC_CONF, TAKE1, "Application interpreter group." },
-    { "WSGICallableObject", wsgi_set_callable_object, NULL,
-        OR_FILEINFO, TAKE1, "Name of entry point in WSGI script file." },
-
-    { "WSGIImportScript", wsgi_add_import_script, NULL,
-        RSRC_CONF, RAW_ARGS, "Location of WSGI import script." },
-    { "WSGIDispatchScript", wsgi_set_dispatch_script, NULL,
-        ACCESS_CONF|RSRC_CONF, RAW_ARGS, "Location of WSGI dispatch script." },
-
-    { "WSGIPassAuthorization", wsgi_set_pass_authorization, NULL,
-        OR_FILEINFO, TAKE1, "Enable/Disable WSGI authorization." },
-    { "WSGIScriptReloading", wsgi_set_script_reloading, NULL,
-        OR_FILEINFO, TAKE1, "Enable/Disable script reloading mechanism." },
-    { "WSGIChunkedRequest", wsgi_set_chunked_request, NULL,
-        OR_FILEINFO, TAKE1, "Enable/Disable support for chunked request." },
-
-    { NULL }
-};
-
-/* Dispatch list for API hooks */
-
-module MODULE_VAR_EXPORT wsgi_module = {
-    STANDARD_MODULE_STUFF,
-    wsgi_hook_init,            /* module initializer                  */
-    wsgi_create_dir_config,    /* create per-dir    config structures */
-    wsgi_merge_dir_config,     /* merge  per-dir    config structures */
-    wsgi_create_server_config, /* create per-server config structures */
-    wsgi_merge_server_config,  /* merge  per-server config structures */
-    wsgi_commands,             /* table of config file commands       */
-    wsgi_handlers,             /* [#8] MIME-typed-dispatched handlers */
-    wsgi_hook_intercept,       /* [#1] URI to filename translation    */
-    NULL,                      /* [#4] validate user id from request  */
-    NULL,                      /* [#5] check if the user is ok _here_ */
-    NULL,                      /* [#3] check access by host address   */
-    NULL,                      /* [#6] determine MIME type            */
-    NULL,                      /* [#7] pre-run fixups                 */
-    NULL,                      /* [#9] log a transaction              */
-    NULL,                      /* [#2] header parser                  */
-    wsgi_hook_child_init,      /* child_init                          */
-    NULL,                      /* child_exit                          */
-    NULL                       /* [#0] post read-request              */
-#ifdef EAPI
-   ,NULL,                      /* EAPI: add_module                    */
-    NULL,                      /* EAPI: remove_module                 */
-    NULL,                      /* EAPI: rewrite_command               */
-    NULL                       /* EAPI: new_connection                */
-#endif
-};
-
-#else
 
 /*
  * Apache 2.X and UNIX specific code for creation and management
@@ -13329,8 +12931,6 @@ static int wsgi_hook_daemon_handler(conn_rec *c)
     return OK;
 }
 
-#endif
-
 /*
  * Apache 2.X module initialisation functions.
  */
@@ -13498,8 +13098,6 @@ static void wsgi_hook_child_init(apr_pool_t *p, server_rec *s)
         wsgi_python_child_init(p);
     }
 }
-
-#if defined(MOD_WSGI_WITH_AAA_HANDLERS)
 
 #include "apr_lib.h"
 
@@ -13792,9 +13390,7 @@ static PyObject *Auth_environ(AuthObject *self, const char *group)
     /*
      * XXX Apparently webdav does actually do modifications to
      * the uri and path_info attributes of request and they
-     * could be used as part of authorisation. Not worrying about
-     * repeating slashes for now as that is Apache 1.3, although
-     * maybe also Apache 2.0.
+     * could be used as part of authorisation.
      */
 
     if (!strcmp(r->protocol, "INCLUDED")) {
@@ -13904,7 +13500,6 @@ static PyObject *Auth_environ(AuthObject *self, const char *group)
      * mod_ssl when in use.
      */
 
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     object = PyObject_GetAttrString((PyObject *)self, "ssl_is_https");
     PyDict_SetItemString(vars, "mod_ssl.is_https", object);
     Py_DECREF(object);
@@ -13912,12 +13507,9 @@ static PyObject *Auth_environ(AuthObject *self, const char *group)
     object = PyObject_GetAttrString((PyObject *)self, "ssl_var_lookup");
     PyDict_SetItemString(vars, "mod_ssl.var_lookup", object);
     Py_DECREF(object);
-#endif
 
     return vars;
 }
-
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
 
 static PyObject *Auth_ssl_is_https(AuthObject *self, PyObject *args)
 {
@@ -14006,13 +13598,9 @@ static PyObject *Auth_ssl_var_lookup(AuthObject *self, PyObject *args)
 #endif
 }
 
-#endif
-
 static PyMethodDef Auth_methods[] = {
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     { "ssl_is_https",   (PyCFunction)Auth_ssl_is_https, METH_VARARGS, 0 },
     { "ssl_var_lookup", (PyCFunction)Auth_ssl_var_lookup, METH_VARARGS, 0 },
-#endif
     { NULL, NULL}
 };
 
@@ -15046,7 +14634,6 @@ static int wsgi_hook_access_checker(request_rec *r)
     return HTTP_FORBIDDEN;
 }
 
-#if defined(MOD_WSGI_WITH_AAA_HANDLERS)
 #if !defined(MOD_WSGI_WITH_AUTHN_PROVIDER)
 static int wsgi_hook_check_user_id(request_rec *r)
 {
@@ -15281,7 +14868,6 @@ static int wsgi_hook_check_user_id(request_rec *r)
     return status;
 }
 #endif
-#endif
 
 #if defined(MOD_WSGI_WITH_AUTHZ_PROVIDER)
 
@@ -15414,8 +15000,6 @@ static int wsgi_hook_auth_checker(request_rec *r)
 
 #endif
 
-#endif
-
 APR_OPTIONAL_FN_TYPE(ap_logio_add_bytes_out) *wsgi_logio_add_bytes_out;
 
 static void ap_logio_add_bytes_out(conn_rec *c, apr_off_t bytes)
@@ -15450,7 +15034,6 @@ static void wsgi_register_hooks(apr_pool_t *p)
 
     static const char * const n2[] = { "core.c", NULL };
 
-#if defined(MOD_WSGI_WITH_AAA_HANDLERS)
 #if !defined(MOD_WSGI_WITH_AUTHN_PROVIDER)
     static const char * const p3[] = { "mod_auth.c", NULL };
 #endif
@@ -15458,7 +15041,6 @@ static void wsgi_register_hooks(apr_pool_t *p)
     static const char * const n4[] = { "mod_authz_user.c", NULL };
 #endif
     static const char * const n5[] = { "mod_authz_host.c", NULL };
-#endif
 
     static const char * const p6[] = { "mod_python.c", NULL };
 
@@ -15476,7 +15058,6 @@ static void wsgi_register_hooks(apr_pool_t *p)
                                   NULL, AP_FTYPE_PROTOCOL);
 #endif
 
-#if defined(MOD_WSGI_WITH_AAA_HANDLERS)
 #if !defined(MOD_WSGI_WITH_AUTHN_PROVIDER)
     ap_hook_check_user_id(wsgi_hook_check_user_id, p3, NULL, APR_HOOK_MIDDLE);
 #else
@@ -15490,7 +15071,6 @@ static void wsgi_register_hooks(apr_pool_t *p)
                          AUTHZ_PROVIDER_VERSION, &wsgi_authz_provider);
 #endif
     ap_hook_access_checker(wsgi_hook_access_checker, NULL, n5, APR_HOOK_MIDDLE);
-#endif
 }
 
 static const command_rec wsgi_commands[] =
@@ -15576,13 +15156,10 @@ static const command_rec wsgi_commands[] =
         NULL, OR_FILEINFO, "Enable/Disable support for chunked requests."),
 
 #ifndef WIN32
-#if AP_SERVER_MAJORVERSION_NUMBER >= 2
     AP_INIT_TAKE1("WSGIEnableSendfile", wsgi_set_enable_sendfile,
         NULL, OR_FILEINFO, "Enable/Disable support for kernel sendfile."),
 #endif
-#endif
 
-#if defined(MOD_WSGI_WITH_AAA_HANDLERS)
     AP_INIT_RAW_ARGS("WSGIAccessScript", wsgi_set_access_script,
         NULL, OR_AUTHCFG, "Location of WSGI host access script file."),
     AP_INIT_RAW_ARGS("WSGIAuthUserScript", wsgi_set_auth_user_script,
@@ -15595,7 +15172,6 @@ static const command_rec wsgi_commands[] =
 #endif
     AP_INIT_TAKE1("WSGIGroupAuthoritative", wsgi_set_group_authoritative,
         NULL, OR_AUTHCFG, "Enable/Disable as being authoritative on groups."),
-#endif
 
     AP_INIT_RAW_ARGS("WSGIHandlerScript", wsgi_add_handler_script,
         NULL, ACCESS_CONF|RSRC_CONF, "Location of WSGI handler script file."),
