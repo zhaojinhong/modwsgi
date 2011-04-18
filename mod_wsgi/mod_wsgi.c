@@ -49,14 +49,11 @@ static PyTypeObject Auth_Type;
 
 /* Local project header files. */
 
+#include "wsgi_version.h"
 #include "wsgi_convert.h"
 #include "wsgi_validate.h"
 
-/* Version and module information. */
-
-#define MOD_WSGI_MAJORVERSION_NUMBER 4
-#define MOD_WSGI_MINORVERSION_NUMBER 0
-#define MOD_WSGI_VERSION_STRING "4.0-TRUNK"
+/* Module information. */
 
 module AP_MODULE_DECLARE_DATA wsgi_module;
 
