@@ -28,10 +28,10 @@ class Log(object):
         self.__fp.seek(0, os.SEEK_END)
         self.__errors = None
 
-    def output(self, index):
+    def output(self, index, delay=1.0):
         if not self.__errors is None:
             return self.__errors[index]
-        time.sleep(1)
+        time.sleep(delay)
         self.__errors = []
         for line in self.__fp.readlines():
             match = re.match(r'(\[[^]]*\]) (\[[^]]*\]) ([^]]*\]) (.*)', line)
