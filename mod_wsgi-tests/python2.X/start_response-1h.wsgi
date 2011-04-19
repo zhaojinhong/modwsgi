@@ -8,7 +8,7 @@
 >>> response = connection.getresponse()
 >>> response.status
 500
->>> messages.output(-1)
+>>> messages[-1]
 '[error] TypeError: expected byte string object, value of type NoneType found'
 
 """

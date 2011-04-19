@@ -12,7 +12,7 @@
 '24'
 >>> response.read(12)
 'Hello World!'
->>> messages.output(-1)
+>>> messages[-1]
 '[error] RuntimeError: ERROR'
 
 """

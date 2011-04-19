@@ -12,7 +12,7 @@
 '24'
 >>> response.read(12)
 'Hello World!'
->>> messages.output(-1, 2.0) # doctest: +ELLIPSIS
+>>> messages[-1] # doctest: +ELLIPSIS
 '[debug] ... Content length mismatch, expected 24, response generated 12: ...'
 
 """

@@ -28,9 +28,9 @@ class Log(object):
         self.__fp.seek(0, os.SEEK_END)
         self.__errors = None
 
-    def output(self, index, delay=1.0):
+    def process(self, delay=3.0):
         if not self.__errors is None:
-            return self.__errors[index]
+            return
         time.sleep(delay)
         self.__errors = []
         for line in self.__fp.readlines():
@@ -44,7 +44,16 @@ class Log(object):
                     groups = match.groups()
                     line = groups[1]
             self.__errors.append(line)
-        return self.__errors[index]
+
+    def __getitem__(self, i):
+        if self.__errors is None:
+            self.process()
+        return self.__errors[i]
+
+    def __getslice__(self, i, j):
+        if self.__errors is None:
+            self.process()
+            return self.__errors[i:j]
 
 def messages():
     return Log(log_file)
