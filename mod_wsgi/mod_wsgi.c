@@ -3507,10 +3507,7 @@ static int Adapter_run(AdapterObject *self, PyObject *object)
         if (PyErr_Occurred())
             wsgi_log_python_error(self->r, self->log, self->r->filename);
     }
-
-    /* Log details of any final Python exceptions. */
-
-    if (PyErr_Occurred())
+    else
         wsgi_log_python_error(self->r, self->log, self->r->filename);
 
     /*
