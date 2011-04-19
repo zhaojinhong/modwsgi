@@ -3405,24 +3405,6 @@ static int Adapter_run(AdapterObject *self, PyObject *object)
                 PyObject *item = NULL;
 
                 while ((item = PyIter_Next(iterator))) {
-#if PY_MAJOR_VERSION >= 3
-                    if (PyUnicode_Check(item)) {
-                        PyObject *latin_item;
-                        latin_item = PyUnicode_AsLatin1String(item);
-                        if (!latin_item) {
-                            PyErr_Format(PyExc_TypeError, "sequence of "
-                                         "byte string values expected, value "
-                                         "containing non 'latin-1' characters "
-                                         "found");
-                            Py_DECREF(item);
-                            break;
-                        }
-
-                        Py_DECREF(item);
-                        item = latin_item;
-                    }
-#endif
-
                     if (!PyString_Check(item)) {
                         PyErr_Format(PyExc_TypeError, "sequence of byte "
                                      "string values expected, value of "
@@ -3544,20 +3526,6 @@ static PyObject *Adapter_write(AdapterObject *self, PyObject *args)
 
     if (!PyArg_ParseTuple(args, "O:write", &item))
         return NULL;
-
-#if PY_MAJOR_VERSION >= 3
-    if (PyUnicode_Check(item)) {
-        latin_item = PyUnicode_AsLatin1String(item);
-        if (!latin_item) {
-            PyErr_Format(PyExc_TypeError, "byte string value expected, "
-                         "value containing non 'latin-1' characters found");
-            return NULL;
-        }
-
-        Py_DECREF(item);
-        item = latin_item;
-    }
-#endif
 
     if (!PyString_Check(item)) {
         PyErr_Format(PyExc_TypeError, "byte string value expected, value "
@@ -3837,18 +3805,6 @@ static PyObject *Stream_iternext(StreamObject *self)
 
         return result;
     }
-
-#if PY_MAJOR_VERSION >= 3
-    if (PyUnicode_Check(result)) {
-        if (PyUnicode_GetSize(result) == 0) {
-            PyErr_SetObject(PyExc_StopIteration, Py_None);
-            Py_DECREF(result);
-            return 0;
-        }
-
-        return result;
-    }
-#endif
 
     Py_DECREF(result);
 
