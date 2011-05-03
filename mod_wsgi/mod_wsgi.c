@@ -99,6 +99,11 @@ static int wsgi_active_requests = 0;
 static apr_thread_mutex_t* wsgi_shutdown_lock = NULL;
 #endif
 
+/* New Relic monitoring agent. */
+
+static const char *wsgi_newrelic_config_file = NULL;
+static const char *wsgi_newrelic_environment = NULL;
+
 /* Script information. */
 
 static apr_array_header_t *wsgi_import_list = NULL;
@@ -167,6 +172,9 @@ typedef struct {
     int enable_sendfile;
 
     apr_hash_t *handler_scripts;
+
+    const char *newrelic_config_file;
+    const char *newrelic_environment;
 } WSGIServerConfig;
 
 static WSGIServerConfig *wsgi_server_config = NULL;
@@ -239,6 +247,9 @@ static WSGIServerConfig *newWSGIServerConfig(apr_pool_t *p)
     object->chunked_request = -1;
 
     object->enable_sendfile = -1;
+
+    object->newrelic_config_file = NULL;
+    object->newrelic_environment = NULL;
 
     return object;
 }
@@ -1006,6 +1017,8 @@ typedef struct {
     int listener_fd;
     const char* mutex_path;
     apr_proc_mutex_t* mutex;
+    const char *newrelic_config_file;
+    const char *newrelic_environment;
 } WSGIProcessGroup;
 
 typedef struct {
@@ -3375,6 +3388,8 @@ static int Adapter_run(AdapterObject *self, PyObject *object)
     PyObject *iterator = NULL;
     PyObject *close = NULL;
 
+    PyObject *wrapper = NULL;
+
     const char *msg = NULL;
     int length = 0;
 
@@ -3386,6 +3401,34 @@ static int Adapter_run(AdapterObject *self, PyObject *object)
         apr_thread_mutex_unlock(wsgi_shutdown_lock);
     }
 #endif
+
+    if (wsgi_newrelic_config_file) {
+        PyObject *module = NULL;
+
+        module = PyImport_ImportModule("newrelic.agent");
+
+        if (module) {
+            PyObject *dict;
+            PyObject *factory;
+
+            dict = PyModule_GetDict(module);
+            factory = PyDict_GetItemString(dict, "WSGIApplicationWrapper");
+
+            if (factory) {
+                Py_INCREF(factory);
+
+                wrapper = PyObject_CallFunctionObjArgs(
+                        factory, object, Py_None, NULL);
+
+                Py_DECREF(factory);
+            }
+
+            Py_DECREF(module);
+        }
+    }
+
+    if (wrapper)
+        object = wrapper;
 
     vars = Adapter_environ(self);
 
@@ -3505,6 +3548,8 @@ static int Adapter_run(AdapterObject *self, PyObject *object)
     Py_DECREF(args);
     Py_DECREF(start);
     Py_DECREF(vars);
+
+    Py_XDECREF(wrapper);
 
     Py_XDECREF(self->sequence);
     self->sequence = NULL;
@@ -4748,6 +4793,88 @@ static InterpreterObject *newInterpreterObject(const char *name)
                        AP_SERVER_MINORVERSION_NUMBER));
 
     Py_DECREF(module);
+
+    /*
+     * If support for New Relic monitoring is enabled then
+     * setup environment variables indicating config file
+     * and environment as appropriate.
+     */
+
+    if (!wsgi_daemon_pool) {
+        wsgi_newrelic_config_file = wsgi_server_config->newrelic_config_file;
+        wsgi_newrelic_environment = wsgi_server_config->newrelic_environment;
+    }
+
+    if (wsgi_newrelic_config_file) {
+        module = PyImport_ImportModule("os");
+
+        if (module) {
+            PyObject *dict = NULL;
+            PyObject *key = NULL;
+            PyObject *value = NULL;
+
+            dict = PyModule_GetDict(module);
+            object = PyDict_GetItemString(dict, "environ");
+
+            if (object) {
+#if PY_MAJOR_VERSION >= 3
+                key = PyUnicode_FromString("NEWRELIC_CONFIG_FILE");
+                value = PyUnicode_Decode(wsgi_newrelic_config_file,
+                                         strlen(wsgi_newrelic_config_file),
+                                         Py_FileSystemDefaultEncoding,
+                                         "surrogateescape");
+#else
+                key = PyString_FromString("NEWRELIC_CONFIG_FILE");
+                value = PyString_FromString(wsgi_newrelic_config_file);
+#endif
+
+                PyObject_SetItem(object, key, value);
+
+                Py_DECREF(key);
+                Py_DECREF(value);
+
+                if (wsgi_newrelic_environment) {
+#if PY_MAJOR_VERSION >= 3
+                    key = PyUnicode_FromString("NEWRELIC_ENVIRONMENT");
+                    value = PyUnicode_Decode(wsgi_newrelic_environment,
+                                             strlen(wsgi_newrelic_environment),
+                                             Py_FileSystemDefaultEncoding,
+                                             "surrogateescape");
+#else
+                    key = PyString_FromString("NEWRELIC_ENVIRONMENT");
+                    value = PyString_FromString(wsgi_newrelic_environment);
+#endif
+
+                    PyObject_SetItem(object, key, value);
+
+                    Py_DECREF(key);
+                    Py_DECREF(value);
+                }
+            }
+
+            Py_DECREF(module);
+        }
+
+        module = PyImport_ImportModule("newrelic.agent");
+
+        if (!module) {
+            Py_BEGIN_ALLOW_THREADS
+            ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
+                         "mod_wsgi (pid=%d): Unable to import "
+                         "'newrelic.agent' module.", getpid());
+            Py_END_ALLOW_THREADS
+
+            PyErr_Print();
+            PyErr_Clear();
+        }
+        else {
+            Py_BEGIN_ALLOW_THREADS
+            ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
+                         "mod_wsgi (pid=%d): Imported 'newrelic.agent'.",
+                         getpid());
+            Py_END_ALLOW_THREADS
+        }
+    }
 
     /*
      * Restore previous thread state. Only need to do
@@ -7681,6 +7808,38 @@ static const char *wsgi_add_handler_script(cmd_parms *cmd, void *mconfig,
     return NULL;
 }
 
+static const char *wsgi_set_newrelic_config_file(
+        cmd_parms *cmd, void *mconfig, const char *f)
+{
+    const char *error = NULL;
+    WSGIServerConfig *sconfig = NULL;
+
+    error = ap_check_cmd_context(cmd, GLOBAL_ONLY);
+    if (error != NULL)
+        return error;
+
+    sconfig = ap_get_module_config(cmd->server->module_config, &wsgi_module);
+    sconfig->newrelic_config_file = f;
+
+    return NULL;
+}
+
+static const char *wsgi_set_newrelic_environment(
+        cmd_parms *cmd, void *mconfig, const char *f)
+{
+    const char *error = NULL;
+    WSGIServerConfig *sconfig = NULL;
+
+    error = ap_check_cmd_context(cmd, GLOBAL_ONLY);
+    if (error != NULL)
+        return error;
+
+    sconfig = ap_get_module_config(cmd->server->module_config, &wsgi_module);
+    sconfig->newrelic_environment = f;
+
+    return NULL;
+}
+
 /* Handler for the translate name phase. */
 
 static int wsgi_alias_matches(const char *uri, const char *alias_fakename)
@@ -8939,6 +9098,9 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
     int groups_count = 0;
     gid_t *groups = NULL;
 
+    const char *newrelic_config_file = NULL;
+    const char *newrelic_environment = NULL;
+
     const char *option = NULL;
     const char *value = NULL;
 
@@ -9189,6 +9351,12 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
             if (virtual_memory_limit < 0)
                 return "Invalid virtual memory limit for WSGI daemon process.";
         }
+        else if (!strcmp(option, "newrelic-config-file")) {
+            newrelic_config_file = value;
+        }
+        else if (!strcmp(option, "newrelic-environment")) {
+            newrelic_environment = value;
+        }
         else
             return "Invalid option to WSGI daemon process definition.";
     }
@@ -9288,6 +9456,9 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
 
     entry->memory_limit = memory_limit;
     entry->virtual_memory_limit = virtual_memory_limit;
+
+    entry->newrelic_config_file = newrelic_config_file;
+    entry->newrelic_environment = newrelic_environment;
 
     entry->listener_fd = -1;
 
@@ -11221,8 +11392,13 @@ static int wsgi_start_process(apr_pool_t *p, WSGIDaemonProcess *daemon)
          */
 
         wsgi_python_initialized = 1;
+
         wsgi_python_path = daemon->group->python_path;
         wsgi_python_eggs = daemon->group->python_eggs;
+
+        wsgi_newrelic_config_file = daemon->group->newrelic_config_file;
+        wsgi_newrelic_environment = daemon->group->newrelic_environment;
+
         wsgi_python_child_init(wsgi_daemon_pool);
 
         /*
@@ -15108,6 +15284,11 @@ static const command_rec wsgi_commands[] =
 
     AP_INIT_RAW_ARGS("WSGIHandlerScript", wsgi_add_handler_script,
         NULL, ACCESS_CONF|RSRC_CONF, "Location of WSGI handler script file."),
+
+    AP_INIT_TAKE1("WSGINewRelicConfigFile", wsgi_set_newrelic_config_file,
+        NULL, RSRC_CONF, "New Relic monitoring agent configuration file."),
+    AP_INIT_TAKE1("WSGINewRelicEnvironment", wsgi_set_newrelic_environment,
+        NULL, RSRC_CONF, "New Relic monitoring agent environment."),
 
     { NULL }
 };
