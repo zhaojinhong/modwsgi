@@ -57,11 +57,6 @@ static PyTypeObject Auth_Type;
 
 module AP_MODULE_DECLARE_DATA wsgi_module;
 
-/* Constants. */
-
-#define WSGI_RELOAD_MODULE 0
-#define WSGI_RELOAD_PROCESS 1
-
 /* Python interpreter state. */
 
 static PyThreadState *wsgi_main_tstate = NULL;
