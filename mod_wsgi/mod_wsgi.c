@@ -8242,7 +8242,7 @@ static void wsgi_build_environment(request_rec *r)
     apr_table_setn(r->subprocess_env, "mod_wsgi.input_chunked",
                    apr_psprintf(r->pool, "%d", !!r->read_chunked));
 
-    apr_table_setn(r->subprocess_env, "mod_wsgi.request_time",
+    apr_table_setn(r->subprocess_env, "mod_wsgi.queue_start",
                    apr_psprintf(r->pool, "%" APR_TIME_T_FMT, r->request_time));
 }
 
