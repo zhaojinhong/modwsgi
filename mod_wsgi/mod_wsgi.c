@@ -8242,6 +8242,9 @@ static void wsgi_build_environment(request_rec *r)
     apr_table_setn(r->subprocess_env, "mod_wsgi.input_chunked",
                    apr_psprintf(r->pool, "%d", !!r->read_chunked));
 
+    apr_table_setn(r->subprocess_env, "mod_wsgi.enable_sendfile",
+                   apr_psprintf(r->pool, "%d", config->enable_sendfile));
+
     apr_table_setn(r->subprocess_env, "mod_wsgi.queue_start",
                    apr_psprintf(r->pool, "%" APR_TIME_T_FMT, r->request_time));
 }
@@ -13081,6 +13084,13 @@ static int wsgi_hook_daemon_handler(conn_rec *c)
 
     config->script_reloading = atoi(apr_table_get(r->subprocess_env,
                                                   "mod_wsgi.script_reloading"));
+
+    item = apr_table_get(r->subprocess_env, "mod_wsgi.enable_sendfile");
+
+    if (item && !strcasecmp(item, "1"))
+        config->enable_sendfile = 1;
+    else
+        config->enable_sendfile = 0;
 
     /*
      * Define how input data is to be processed. This
