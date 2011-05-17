@@ -5972,7 +5972,8 @@ static PyObject *wsgi_load_source(apr_pool_t *pool, request_rec *r,
 
                         Py_INCREF(object);
 
-                        args = Py_BuildValue("(Os)", application, filename);
+                        args = Py_BuildValue("(Oss)", application, filename,
+                                             "Script");
                         transaction = PyObject_Call(object, args, NULL);
 
                         if (!transaction)
