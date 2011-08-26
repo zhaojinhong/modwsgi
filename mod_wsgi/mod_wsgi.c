@@ -3400,7 +3400,7 @@ static int Adapter_run(AdapterObject *self, PyObject *object)
     if (wsgi_newrelic_config_file) {
         PyObject *module = NULL;
 
-        module = PyImport_ImportModule("newrelic.agent");
+        module = PyImport_ImportModule("newrelic.api.web_transaction");
 
         if (module) {
             PyObject *dict;
@@ -4791,8 +4791,7 @@ static InterpreterObject *newInterpreterObject(const char *name)
 
     /*
      * If support for New Relic monitoring is enabled then
-     * setup environment variables indicating config file
-     * and environment as appropriate.
+     * import New Relic agent module and initialise it.
      */
 
     if (!wsgi_daemon_pool) {
@@ -4801,58 +4800,74 @@ static InterpreterObject *newInterpreterObject(const char *name)
     }
 
     if (wsgi_newrelic_config_file) {
-        module = PyImport_ImportModule("os");
-
-        if (module) {
-            PyObject *dict = NULL;
-            PyObject *key = NULL;
-            PyObject *value = NULL;
-
-            dict = PyModule_GetDict(module);
-            object = PyDict_GetItemString(dict, "environ");
-
-            if (object) {
-#if PY_MAJOR_VERSION >= 3
-                key = PyUnicode_FromString("NEWRELIC_CONFIG_FILE");
-                value = PyUnicode_Decode(wsgi_newrelic_config_file,
-                                         strlen(wsgi_newrelic_config_file),
-                                         Py_FileSystemDefaultEncoding,
-                                         "surrogateescape");
-#else
-                key = PyString_FromString("NEWRELIC_CONFIG_FILE");
-                value = PyString_FromString(wsgi_newrelic_config_file);
-#endif
-
-                PyObject_SetItem(object, key, value);
-
-                Py_DECREF(key);
-                Py_DECREF(value);
-
-                if (wsgi_newrelic_environment) {
-#if PY_MAJOR_VERSION >= 3
-                    key = PyUnicode_FromString("NEWRELIC_ENVIRONMENT");
-                    value = PyUnicode_Decode(wsgi_newrelic_environment,
-                                             strlen(wsgi_newrelic_environment),
-                                             Py_FileSystemDefaultEncoding,
-                                             "surrogateescape");
-#else
-                    key = PyString_FromString("NEWRELIC_ENVIRONMENT");
-                    value = PyString_FromString(wsgi_newrelic_environment);
-#endif
-
-                    PyObject_SetItem(object, key, value);
-
-                    Py_DECREF(key);
-                    Py_DECREF(value);
-                }
-            }
-
-            Py_DECREF(module);
-        }
+        PyObject *dict = NULL;
 
         module = PyImport_ImportModule("newrelic.agent");
 
-        if (!module) {
+        if (module) {
+            Py_BEGIN_ALLOW_THREADS
+            ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
+                         "mod_wsgi (pid=%d, process='%s', application='%s'): "
+                         "Imported 'newrelic.agent'.", getpid(),
+                         wsgi_daemon_group , name);
+            Py_END_ALLOW_THREADS
+
+            dict = PyModule_GetDict(module);
+            object = PyDict_GetItemString(dict, "initialize");
+
+            if (object) {
+                PyObject *config_file = NULL;
+                PyObject *environment = NULL;
+                PyObject *result = NULL;
+
+#if PY_MAJOR_VERSION >= 3
+                config_file = PyUnicode_Decode(wsgi_newrelic_config_file,
+                         strlen(wsgi_newrelic_config_file),
+                         Py_FileSystemDefaultEncoding,
+                         "surrogateescape");
+#else
+                config_file = PyString_FromString(wsgi_newrelic_config_file);
+#endif
+
+                if (wsgi_newrelic_environment) {
+#if PY_MAJOR_VERSION >= 3
+                    environment = PyUnicode_Decode(wsgi_newrelic_environment,
+                            strlen(wsgi_newrelic_environment),
+                            Py_FileSystemDefaultEncoding,
+                            "surrogateescape");
+#else
+                    environment = PyString_FromString(
+                            wsgi_newrelic_environment);
+#endif
+                }
+                else {
+                    Py_INCREF(Py_None);
+                    environment = Py_None;
+                }
+
+                result = PyObject_CallFunctionObjArgs(object, config_file,
+                        environment, NULL);
+
+                if (!result) {
+                    Py_BEGIN_ALLOW_THREADS
+                    ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
+                                 "mod_wsgi (pid=%d): Unable to initialise "
+                                 "New Relic agent with config '%s'.", getpid(),
+                                 wsgi_newrelic_config_file);
+                    Py_END_ALLOW_THREADS
+                }
+
+                Py_DECREF(config_file);
+                Py_DECREF(environment);
+
+                Py_XDECREF(result);
+
+                Py_DECREF(object);
+            }
+
+            Py_XDECREF(module);
+        }
+        else {
             Py_BEGIN_ALLOW_THREADS
             ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
                          "mod_wsgi (pid=%d): Unable to import "
@@ -4861,13 +4876,6 @@ static InterpreterObject *newInterpreterObject(const char *name)
 
             PyErr_Print();
             PyErr_Clear();
-        }
-        else {
-            Py_BEGIN_ALLOW_THREADS
-            ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
-                         "mod_wsgi (pid=%d): Imported 'newrelic.agent'.",
-                         getpid());
-            Py_END_ALLOW_THREADS
         }
     }
 
@@ -5948,7 +5956,10 @@ static PyObject *wsgi_load_source(apr_pool_t *pool, request_rec *r,
     if (wsgi_newrelic_config_file) {
         PyObject *module = NULL;
 
-        module = PyImport_ImportModule("newrelic.agent");
+        PyObject *application = NULL;
+
+
+        module = PyImport_ImportModule("newrelic.api.application");
 
         if (module) {
             PyObject *dict = NULL;
@@ -5957,54 +5968,69 @@ static PyObject *wsgi_load_source(apr_pool_t *pool, request_rec *r,
             dict = PyModule_GetDict(module);
             object = PyDict_GetItemString(dict, "application");
 
-            if (object) {
-                PyObject *application = NULL;
+            Py_INCREF(object);
+            application = PyObject_CallFunctionObjArgs(object, NULL);
+            Py_DECREF(object);
 
-                Py_INCREF(object);
-                application = PyObject_CallFunctionObjArgs(object, NULL);
-                Py_DECREF(object);
+            Py_DECREF(module);
+            module = NULL;
 
-                if (application) {
-                    object = PyDict_GetItemString(dict, "BackgroundTask");
-
-                    if (object) {
-                        PyObject *args = NULL;
-
-                        Py_INCREF(object);
-
-                        args = Py_BuildValue("(Oss)", application, filename,
-                                             "Script/Import");
-                        transaction = PyObject_Call(object, args, NULL);
-
-                        if (!transaction)
-                            PyErr_WriteUnraisable(object);
-
-                        Py_DECREF(args);
-                        Py_DECREF(object);
-
-                        if (transaction) {
-                            PyObject *result = NULL;
-
-                            object = PyObject_GetAttrString(
-                                    transaction, "__enter__");
-                            args = PyTuple_Pack(0);
-                            result = PyObject_Call(object, args, NULL);
-
-                            if (!result)
-                                PyErr_WriteUnraisable(object);
-
-                            Py_XDECREF(result);
-                            Py_DECREF(object);
-                        }
-                    }
-
-                    Py_DECREF(application);
-                }
-            }
+            if (!application)
+                PyErr_Clear();
         }
         else
             PyErr_Clear();
+
+        if (application)
+            module = PyImport_ImportModule("newrelic.api.background_task");
+
+        if (module) {
+            PyObject *dict = NULL;
+            PyObject *object = NULL;
+
+            dict = PyModule_GetDict(module);
+            object = PyDict_GetItemString(dict, "BackgroundTask");
+
+            if (object) {
+                PyObject *args = NULL;
+
+                Py_INCREF(object);
+
+                args = Py_BuildValue("(Oss)", application, filename,
+                                     "Script/Import");
+                transaction = PyObject_Call(object, args, NULL);
+
+                if (!transaction)
+                    PyErr_WriteUnraisable(object);
+
+                Py_DECREF(args);
+                Py_DECREF(object);
+
+                if (transaction) {
+                    PyObject *result = NULL;
+
+                    object = PyObject_GetAttrString(
+                            transaction, "__enter__");
+                    args = PyTuple_Pack(0);
+                    result = PyObject_Call(object, args, NULL);
+
+                    if (!result)
+                        PyErr_WriteUnraisable(object);
+
+                    Py_XDECREF(result);
+                    Py_DECREF(object);
+                }
+            }
+
+            Py_DECREF(module);
+        }
+        else
+            PyErr_Print();
+
+        Py_XDECREF(application);
     }
+    else
+        PyErr_Clear();
 
     co = (PyObject *)PyNode_Compile(n, filename);
     PyNode_Free(n);
