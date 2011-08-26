@@ -49,6 +49,18 @@
         PyObject_HEAD_INIT(type) size,
 #endif
 
+#ifndef Py_REFCNT
+#define Py_REFCNT(ob)           (((PyObject*)(ob))->ob_refcnt)
+#endif
+
+#ifndef Py_TYPE
+#define Py_TYPE(ob)             (((PyObject*)(ob))->ob_type)
+#endif
+
+#ifndef Py_SIZE
+#define Py_SIZE(ob)             (((PyVarObject*)(ob))->ob_size)
+#endif
+
 #if PY_MAJOR_VERSION >= 3
 #define PyStringObject PyBytesObject
 #define PyString_Check PyBytes_Check
