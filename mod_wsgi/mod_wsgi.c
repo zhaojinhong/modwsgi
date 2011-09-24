@@ -2577,7 +2577,7 @@ static PyObject *Adapter_start_response(AdapterObject *self, PyObject *args)
 
     PyObject *status_line = NULL;
     PyObject *headers = NULL;
-    PyObject *exc_info = NULL;
+    PyObject *exc_info = Py_None;
 
     PyObject *status_line_as_bytes = NULL;
     PyObject *headers_as_bytes = NULL;
@@ -2587,14 +2587,17 @@ static PyObject *Adapter_start_response(AdapterObject *self, PyObject *args)
         return NULL;
     }
 
-    if (!PyArg_ParseTuple(args, "OO!|O!:start_response",
-        &status_line, &PyList_Type, &headers, &PyTuple_Type, &exc_info)) {
+    if (!PyArg_ParseTuple(args, "OO!|O:start_response",
+        &status_line, &PyList_Type, &headers, &exc_info)) {
         return NULL;
     }
 
-    /* XXX Check this. */
+    if (exc_info != Py_None && !PyTuple_Check(exc_info)) {
+        PyErr_SetString(PyExc_RuntimeError, "exception info must be a tuple");
+        return NULL;
+    }
 
-    if (exc_info && exc_info != Py_None) {
+    if (exc_info != Py_None) {
         if (self->status_line && !self->headers) {
             PyObject *type = NULL;
             PyObject *value = NULL;
