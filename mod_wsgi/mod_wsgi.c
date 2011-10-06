@@ -85,10 +85,12 @@ static int volatile wsgi_daemon_graceful = 0;
 
 #if defined(MOD_WSGI_WITH_DAEMONS)
 static apr_interval_time_t wsgi_deadlock_timeout = 0;
-static apr_interval_time_t wsgi_inactivity_timeout = 0;
+static apr_interval_time_t wsgi_idle_timeout = 0;
+static apr_interval_time_t wsgi_busy_timeout = 0;
 static apr_interval_time_t wsgi_graceful_timeout = 0;
 static apr_time_t volatile wsgi_deadlock_shutdown_time = 0;
-static apr_time_t volatile wsgi_inactivity_shutdown_time = 0;
+static apr_time_t volatile wsgi_idle_shutdown_time = 0;
+static apr_time_t volatile wsgi_busy_shutdown_time = 0;
 static apr_time_t volatile wsgi_graceful_shutdown_time = 0;
 static int wsgi_active_requests = 0;
 static apr_thread_mutex_t* wsgi_shutdown_lock = NULL;
@@ -995,9 +997,11 @@ typedef struct {
     const char *python_eggs;
     int stack_size;
     int maximum_requests;
+    int blocked_requests;
     int shutdown_timeout;
     apr_time_t deadlock_timeout;
     apr_time_t inactivity_timeout;
+    apr_time_t blocked_timeout;
     apr_time_t graceful_timeout;
     const char *display_name;
     int send_buffer_size;
@@ -1789,10 +1793,19 @@ static PyObject *Input_read(InputObject *self, PyObject *args)
         return NULL;
 
 #if defined(MOD_WSGI_WITH_DAEMONS)
-    if (wsgi_inactivity_timeout) {
+    if (wsgi_idle_timeout || wsgi_busy_timeout) {
         apr_thread_mutex_lock(wsgi_shutdown_lock);
-        wsgi_inactivity_shutdown_time = apr_time_now();
-        wsgi_inactivity_shutdown_time += wsgi_inactivity_timeout;
+
+        if (wsgi_idle_timeout) {
+            wsgi_idle_shutdown_time = apr_time_now();
+            wsgi_idle_shutdown_time += wsgi_idle_timeout;
+        }
+
+        if (wsgi_busy_timeout) {
+            wsgi_busy_shutdown_time = apr_time_now();
+            wsgi_busy_shutdown_time += wsgi_busy_timeout;
+        }
+
         apr_thread_mutex_unlock(wsgi_shutdown_lock);
     }
 #endif
@@ -2657,10 +2670,19 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
     request_rec *r;
 
 #if defined(MOD_WSGI_WITH_DAEMONS)
-    if (wsgi_inactivity_timeout) {
+    if (wsgi_idle_timeout || wsgi_busy_timeout) {
         apr_thread_mutex_lock(wsgi_shutdown_lock);
-        wsgi_inactivity_shutdown_time = apr_time_now();
-        wsgi_inactivity_shutdown_time += wsgi_inactivity_timeout;
+
+        if (wsgi_idle_timeout) {
+            wsgi_idle_shutdown_time = apr_time_now();
+            wsgi_idle_shutdown_time += wsgi_idle_timeout;
+        }
+
+        if (wsgi_busy_timeout) {
+            wsgi_busy_shutdown_time = apr_time_now();
+            wsgi_busy_shutdown_time += wsgi_busy_timeout;
+        }
+
         apr_thread_mutex_unlock(wsgi_shutdown_lock);
     }
 #endif
@@ -3392,10 +3414,19 @@ static int Adapter_run(AdapterObject *self, PyObject *object)
     int length = 0;
 
 #if defined(MOD_WSGI_WITH_DAEMONS)
-    if (wsgi_inactivity_timeout) {
+    if (wsgi_idle_timeout || wsgi_busy_timeout) {
         apr_thread_mutex_lock(wsgi_shutdown_lock);
-        wsgi_inactivity_shutdown_time = apr_time_now();
-        wsgi_inactivity_shutdown_time += wsgi_inactivity_timeout;
+
+        if (wsgi_idle_timeout) {
+            wsgi_idle_shutdown_time = apr_time_now();
+            wsgi_idle_shutdown_time += wsgi_idle_timeout;
+        }
+
+        if (wsgi_busy_timeout) {
+            wsgi_busy_shutdown_time = apr_time_now();
+            wsgi_busy_shutdown_time += wsgi_busy_timeout;
+        }
+
         apr_thread_mutex_unlock(wsgi_shutdown_lock);
     }
 #endif
@@ -9226,9 +9257,11 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
 
     int stack_size = 0;
     int maximum_requests = 0;
+    int blocked_requests = 0;
     int shutdown_timeout = 5;
     int deadlock_timeout = 300;
     int inactivity_timeout = 0;
+    int blocked_timeout = 0;
     int graceful_timeout = 0;
 
     const char *display_name = NULL;
@@ -9382,6 +9415,14 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
             if (maximum_requests < 0)
                 return "Invalid request count for WSGI daemon process.";
         }
+        else if (!strcmp(option, "blocked-requests")) {
+            if (!*value)
+                return "Invalid blocked count for WSGI daemon process.";
+
+            blocked_requests = atoi(value);
+            if (blocked_requests < 0)
+                return "Invalid blocked count for WSGI daemon process.";
+        }
         else if (!strcmp(option, "shutdown-timeout")) {
             if (!*value)
                 return "Invalid shutdown timeout for WSGI daemon process.";
@@ -9405,6 +9446,14 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
             inactivity_timeout = atoi(value);
             if (inactivity_timeout < 0)
                 return "Invalid inactivity timeout for WSGI daemon process.";
+        }
+        else if (!strcmp(option, "blocked-timeout")) {
+            if (!*value)
+                return "Invalid process timeout for WSGI daemon process.";
+
+            blocked_timeout = atoi(value);
+            if (blocked_timeout < 0)
+                return "Invalid process timeout for WSGI daemon process.";
         }
         else if (!strcmp(option, "graceful-timeout")) {
             if (!*value)
@@ -9559,6 +9608,9 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
             return "Name duplicates previous WSGI daemon definition.";
     }
 
+    if (blocked_requests == 0 || blocked_requests > threads)
+        blocked_requests = threads;
+
     wsgi_daemon_count++;
 
     entry = (WSGIProcessGroup *)apr_array_push(wsgi_daemon_list);
@@ -9592,9 +9644,11 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
 
     entry->stack_size = stack_size;
     entry->maximum_requests = maximum_requests;
+    entry->blocked_requests = blocked_requests;
     entry->shutdown_timeout = shutdown_timeout;
     entry->deadlock_timeout = apr_time_from_sec(deadlock_timeout);
     entry->inactivity_timeout = apr_time_from_sec(inactivity_timeout);
+    entry->blocked_timeout = apr_time_from_sec(blocked_timeout);
     entry->graceful_timeout = apr_time_from_sec(graceful_timeout);
 
     entry->display_name = display_name;
@@ -10663,20 +10717,24 @@ static void *wsgi_deadlock_thread(apr_thread_t *thd, void *data)
 static void *wsgi_monitor_thread(apr_thread_t *thd, void *data)
 {
     WSGIDaemonProcess *daemon = data;
+    WSGIProcessGroup *group = daemon->group;
 
     int restart = 0;
 
     if (wsgi_server_config->verbose_debugging) {
         ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, wsgi_server,
                      "mod_wsgi (pid=%d): Enable monitor thread in "
-                     "process '%s'.", getpid(), daemon->group->name);
+                     "process '%s'.", getpid(), group->name);
 
         ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, wsgi_server,
                      "mod_wsgi (pid=%d): Deadlock timeout is %d.",
                      getpid(), (int)(apr_time_sec(wsgi_deadlock_timeout)));
         ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, wsgi_server,
-                     "mod_wsgi (pid=%d): Inactivity timeout is %d.",
-                     getpid(), (int)(apr_time_sec(wsgi_inactivity_timeout)));
+                     "mod_wsgi (pid=%d): Idle inactivity timeout is %d.",
+                     getpid(), (int)(apr_time_sec(wsgi_idle_timeout)));
+        ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, wsgi_server,
+                     "mod_wsgi (pid=%d): Busy inactivity timeout is %d.",
+                     getpid(), (int)(apr_time_sec(wsgi_busy_timeout)));
         ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, wsgi_server,
                      "mod_wsgi (pid=%d): Graceful timeout is %d.",
                      getpid(), (int)(apr_time_sec(wsgi_graceful_timeout)));
@@ -10686,7 +10744,8 @@ static void *wsgi_monitor_thread(apr_thread_t *thd, void *data)
         apr_time_t now;
 
         apr_time_t deadlock_time;
-        apr_time_t inactivity_time;
+        apr_time_t idle_time;
+        apr_time_t busy_time;
         apr_time_t graceful_time;
 
         apr_interval_time_t period = 0;
@@ -10695,7 +10754,8 @@ static void *wsgi_monitor_thread(apr_thread_t *thd, void *data)
 
         apr_thread_mutex_lock(wsgi_shutdown_lock);
         deadlock_time = wsgi_deadlock_shutdown_time;
-        inactivity_time = wsgi_inactivity_shutdown_time;
+        idle_time = wsgi_idle_shutdown_time;
+        busy_time = wsgi_busy_shutdown_time;
         graceful_time = wsgi_graceful_shutdown_time;
         apr_thread_mutex_unlock(wsgi_shutdown_lock);
 
@@ -10705,7 +10765,7 @@ static void *wsgi_monitor_thread(apr_thread_t *thd, void *data)
                     ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
                                  "mod_wsgi (pid=%d): Daemon process deadlock "
                                  "timer expired, stopping process '%s'.",
-                                 getpid(), daemon->group->name);
+                                 getpid(), group->name);
 
                     restart = 1;
                 }
@@ -10718,25 +10778,67 @@ static void *wsgi_monitor_thread(apr_thread_t *thd, void *data)
             }
         }
 
-        if (!restart && wsgi_inactivity_timeout) {
-            if (inactivity_time) {
-                if (inactivity_time <= now) {
-                    ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
-                                 "mod_wsgi (pid=%d): Daemon process "
-                                 "inactivity timer expired, stopping "
-                                 "process '%s'.", getpid(),
-                                 daemon->group->name);
+        if (!restart && wsgi_idle_timeout) {
+            if (idle_time) {
+                if (idle_time <= now) {
+                    if (wsgi_active_requests == 0) {
+                        ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
+                                     "mod_wsgi (pid=%d): Daemon process "
+                                     "idle inactivity timer expired, "
+                                     "stopping process '%s'.", getpid(),
+                                     group->name);
 
-                    restart = 1;
+                        restart = 1;
+                    }
+                    else {
+                        /* Ignore for now as still have requests. */
+
+                        if (!period || (wsgi_idle_timeout < period))
+                            period = wsgi_idle_timeout;
+                    }
                 }
                 else {
-                    if (!period || ((inactivity_time - now) < period))
-                        period = inactivity_time - now;
+                    if (!period || ((idle_time - now) < period))
+                        period = idle_time - now;
+                    else if (wsgi_busy_timeout < period)
+                        period = wsgi_busy_timeout;
                 }
             }
             else {
-                if (!period || (wsgi_inactivity_timeout < period))
-                    period = wsgi_inactivity_timeout;
+                if (!period || (wsgi_idle_timeout < period))
+                    period = wsgi_idle_timeout;
+            }
+        }
+
+        if (!restart && wsgi_busy_timeout) {
+            if (busy_time) {
+                if (busy_time <= now) {
+                    if (wsgi_active_requests == group->blocked_requests) {
+                        ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
+                                     "mod_wsgi (pid=%d): Daemon process "
+                                     "busy inactivity timer expired, "
+                                     "stopping process '%s'.", getpid(),
+                                     group->name);
+
+                        restart = 1;
+                    }
+                    else {
+                        /* Ignore for now as not at limit of requests. */
+
+                        if (!period || (wsgi_busy_timeout < period))
+                            period = wsgi_busy_timeout;
+                    }
+                }
+                else {
+                    if (!period || ((busy_time - now) < period))
+                        period = busy_time - now;
+                    else if (wsgi_busy_timeout < period)
+                        period = wsgi_busy_timeout;
+                }
+            }
+            else {
+                if (!period || (wsgi_busy_timeout < period))
+                    period = wsgi_busy_timeout;
             }
         }
 
@@ -10746,13 +10848,15 @@ static void *wsgi_monitor_thread(apr_thread_t *thd, void *data)
                     ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
                                  "mod_wsgi (pid=%d): Daemon process "
                                  "graceful timer expired '%s'.", getpid(),
-                                 daemon->group->name);
+                                 group->name);
 
                     restart = 1;
                 }
                 else {
                     if (!period || ((graceful_time - now) < period))
                         period = graceful_time - now;
+                    else if (wsgi_graceful_timeout < period)
+                        period = wsgi_graceful_timeout;
                 }
             }
             else {
@@ -10815,10 +10919,11 @@ static void wsgi_daemon_main(apr_pool_t *p, WSGIDaemonProcess *daemon)
     /* Start monitoring thread if required. */
 
     wsgi_deadlock_timeout = daemon->group->deadlock_timeout;
-    wsgi_inactivity_timeout = daemon->group->inactivity_timeout;
+    wsgi_idle_timeout = daemon->group->inactivity_timeout;
+    wsgi_busy_timeout = daemon->group->blocked_timeout;
     wsgi_graceful_timeout = daemon->group->graceful_timeout;
 
-    if (wsgi_deadlock_timeout || wsgi_inactivity_timeout) {
+    if (wsgi_deadlock_timeout || wsgi_idle_timeout) {
         apr_thread_mutex_create(&wsgi_shutdown_lock,
                                 APR_THREAD_MUTEX_UNNESTED, p);
 
