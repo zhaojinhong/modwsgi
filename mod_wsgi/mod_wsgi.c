@@ -10813,7 +10813,7 @@ static void *wsgi_monitor_thread(apr_thread_t *thd, void *data)
         if (!restart && wsgi_busy_timeout) {
             if (busy_time) {
                 if (busy_time <= now) {
-                    if (wsgi_active_requests == group->blocked_requests) {
+                    if (wsgi_active_requests >= group->blocked_requests) {
                         ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
                                      "mod_wsgi (pid=%d): Daemon process "
                                      "busy inactivity timer expired, "
