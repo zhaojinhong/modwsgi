@@ -92,9 +92,12 @@ static apr_time_t volatile wsgi_deadlock_shutdown_time = 0;
 static apr_time_t volatile wsgi_idle_shutdown_time = 0;
 static apr_time_t volatile wsgi_busy_shutdown_time = 0;
 static apr_time_t volatile wsgi_graceful_shutdown_time = 0;
-static int wsgi_active_requests = 0;
-static apr_thread_mutex_t* wsgi_shutdown_lock = NULL;
 #endif
+
+/* Request tracking and timing. */
+
+static apr_thread_mutex_t* wsgi_monitor_lock = NULL;
+static int wsgi_active_requests = 0;
 
 /* New Relic monitoring agent. */
 
@@ -1794,7 +1797,7 @@ static PyObject *Input_read(InputObject *self, PyObject *args)
 
 #if defined(MOD_WSGI_WITH_DAEMONS)
     if (wsgi_idle_timeout || wsgi_busy_timeout) {
-        apr_thread_mutex_lock(wsgi_shutdown_lock);
+        apr_thread_mutex_lock(wsgi_monitor_lock);
 
         if (wsgi_idle_timeout) {
             wsgi_idle_shutdown_time = apr_time_now();
@@ -1806,7 +1809,7 @@ static PyObject *Input_read(InputObject *self, PyObject *args)
             wsgi_busy_shutdown_time += wsgi_busy_timeout;
         }
 
-        apr_thread_mutex_unlock(wsgi_shutdown_lock);
+        apr_thread_mutex_unlock(wsgi_monitor_lock);
     }
 #endif
 
@@ -2671,7 +2674,7 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
 
 #if defined(MOD_WSGI_WITH_DAEMONS)
     if (wsgi_idle_timeout || wsgi_busy_timeout) {
-        apr_thread_mutex_lock(wsgi_shutdown_lock);
+        apr_thread_mutex_lock(wsgi_monitor_lock);
 
         if (wsgi_idle_timeout) {
             wsgi_idle_shutdown_time = apr_time_now();
@@ -2683,7 +2686,7 @@ static int Adapter_output(AdapterObject *self, const char *data, int length,
             wsgi_busy_shutdown_time += wsgi_busy_timeout;
         }
 
-        apr_thread_mutex_unlock(wsgi_shutdown_lock);
+        apr_thread_mutex_unlock(wsgi_monitor_lock);
     }
 #endif
 
@@ -3023,6 +3026,11 @@ static PyObject *Adapter_environ(AdapterObject *self)
 
     const char *scheme = NULL;
 
+    int max_threads = 0;
+    int max_processes = 0;
+    int is_threaded = 0;
+    int is_forked = 0;
+
     /* Create the WSGI environment dictionary. */
 
     vars = PyDict_New();
@@ -3182,6 +3190,74 @@ static PyObject *Adapter_environ(AdapterObject *self)
         PyDict_SetItemString(vars, "mod_ssl.var_lookup", object);
         Py_DECREF(object);
     }
+#endif
+
+    /*
+     * Add information about request thread pool size and the
+     * number of current requests running.
+     */
+
+    object = PyInt_FromLong(wsgi_active_requests);
+    PyDict_SetItemString(vars, "mod_wsgi.active_requests", object);
+    Py_DECREF(object);
+
+#if defined(MOD_WSGI_WITH_DAEMONS)
+    if (wsgi_daemon_process) {
+        object = PyInt_FromLong(wsgi_daemon_process->group->processes);
+        PyDict_SetItemString(vars, "mod_wsgi.available_processes", object);
+        Py_DECREF(object);
+
+        object = PyInt_FromLong(wsgi_daemon_process->group->threads);
+        PyDict_SetItemString(vars, "mod_wsgi.threads_per_process", object);
+        Py_DECREF(object);
+    }
+    else {
+        ap_mpm_query(AP_MPMQ_IS_THREADED, &is_threaded);
+        if (is_threaded != AP_MPMQ_NOT_SUPPORTED) {
+            ap_mpm_query(AP_MPMQ_MAX_THREADS, &max_threads);
+        }
+        ap_mpm_query(AP_MPMQ_IS_FORKED, &is_forked);
+        if (is_forked != AP_MPMQ_NOT_SUPPORTED) {
+            ap_mpm_query(AP_MPMQ_MAX_DAEMON_USED, &max_processes);
+            if (max_processes == -1) {
+                ap_mpm_query(AP_MPMQ_MAX_DAEMONS, &max_processes);
+            }
+        }
+
+        max_threads = (max_threads <= 0) ? 1 : max_threads;
+        max_processes = (max_processes <= 0) ? 1 : max_processes;
+
+        object = PyInt_FromLong(max_processes);
+        PyDict_SetItemString(vars, "mod_wsgi.available_processes", object);
+        Py_DECREF(object);
+
+        object = PyInt_FromLong(max_threads);
+        PyDict_SetItemString(vars, "mod_wsgi.threads_per_process", object);
+        Py_DECREF(object);
+    }
+#else
+    ap_mpm_query(AP_MPMQ_IS_THREADED, &is_threaded);
+    if (is_threaded != AP_MPMQ_NOT_SUPPORTED) {
+        ap_mpm_query(AP_MPMQ_MAX_THREADS, &max_threads);
+    }
+    ap_mpm_query(AP_MPMQ_IS_FORKED, &is_forked);
+    if (is_forked != AP_MPMQ_NOT_SUPPORTED) {
+        ap_mpm_query(AP_MPMQ_MAX_DAEMON_USED, &max_processes);
+        if (max_processes == -1) {
+            ap_mpm_query(AP_MPMQ_MAX_DAEMONS, &max_processes);
+        }
+    }
+
+    max_threads = (max_threads <= 0) ? 1 : max_threads;
+    max_processes = (max_processes <= 0) ? 1 : max_processes;
+
+    object = PyInt_FromLong(max_processes);
+    PyDict_SetItemString(vars, "mod_wsgi.available_processes", object);
+    Py_DECREF(object);
+
+    object = PyInt_FromLong(max_threads);
+    PyDict_SetItemString(vars, "mod_wsgi.threads_per_process", object);
+    Py_DECREF(object);
 #endif
 
     return vars;
@@ -3415,7 +3491,7 @@ static int Adapter_run(AdapterObject *self, PyObject *object)
 
 #if defined(MOD_WSGI_WITH_DAEMONS)
     if (wsgi_idle_timeout || wsgi_busy_timeout) {
-        apr_thread_mutex_lock(wsgi_shutdown_lock);
+        apr_thread_mutex_lock(wsgi_monitor_lock);
 
         if (wsgi_idle_timeout) {
             wsgi_idle_shutdown_time = apr_time_now();
@@ -3427,7 +3503,7 @@ static int Adapter_run(AdapterObject *self, PyObject *object)
             wsgi_busy_shutdown_time += wsgi_busy_timeout;
         }
 
-        apr_thread_mutex_unlock(wsgi_shutdown_lock);
+        apr_thread_mutex_unlock(wsgi_monitor_lock);
     }
 #endif
 
@@ -6484,6 +6560,14 @@ static int wsgi_execute_script(request_rec *r)
     }
 #endif
 
+    /* If embedded mode, need to do request count. */
+
+    if (!wsgi_daemon_pool) {
+        apr_thread_mutex_lock(wsgi_monitor_lock);
+        wsgi_active_requests++;
+        apr_thread_mutex_unlock(wsgi_monitor_lock);
+    }
+
     /* Load module if not already loaded. */
 
     if (!module) {
@@ -6577,6 +6661,14 @@ static int wsgi_execute_script(request_rec *r)
     /* Cleanup and release interpreter, */
 
     Py_XDECREF(module);
+
+    /* If embedded mode, need to do request count. */
+
+    if (!wsgi_daemon_pool) {
+        apr_thread_mutex_lock(wsgi_monitor_lock);
+        wsgi_active_requests--;
+        apr_thread_mutex_unlock(wsgi_monitor_lock);
+    }
 
     wsgi_release_interpreter(interp);
 
@@ -10568,9 +10660,9 @@ static void wsgi_daemon_worker(apr_pool_t *p, WSGIDaemonThread *thread)
 
         /* Process the request proxied from the child process. */
 
-        apr_thread_mutex_lock(wsgi_shutdown_lock);
+        apr_thread_mutex_lock(wsgi_monitor_lock);
         wsgi_active_requests++;
-        apr_thread_mutex_unlock(wsgi_shutdown_lock);
+        apr_thread_mutex_unlock(wsgi_monitor_lock);
 
         bucket_alloc = apr_bucket_alloc_create(ptrans);
         wsgi_process_socket(ptrans, socket, bucket_alloc, daemon);
@@ -10583,9 +10675,9 @@ static void wsgi_daemon_worker(apr_pool_t *p, WSGIDaemonThread *thread)
 
         /* Check to see if maximum number of requests reached. */
 
-        apr_thread_mutex_lock(wsgi_shutdown_lock);
+        apr_thread_mutex_lock(wsgi_monitor_lock);
         wsgi_active_requests--;
-        apr_thread_mutex_unlock(wsgi_shutdown_lock);
+        apr_thread_mutex_unlock(wsgi_monitor_lock);
 
         if (daemon->group->maximum_requests) {
             if (--wsgi_request_count <= 0) {
@@ -10595,10 +10687,10 @@ static void wsgi_daemon_worker(apr_pool_t *p, WSGIDaemonThread *thread)
                                  "reached, attempt a graceful shutdown "
                                  "'%s'.", getpid(), daemon->group->name);
 
-                    apr_thread_mutex_lock(wsgi_shutdown_lock);
+                    apr_thread_mutex_lock(wsgi_monitor_lock);
                     wsgi_graceful_shutdown_time = apr_time_now();
                     wsgi_graceful_shutdown_time += wsgi_graceful_timeout;
-                    apr_thread_mutex_unlock(wsgi_shutdown_lock);
+                    apr_thread_mutex_unlock(wsgi_monitor_lock);
                 }
                 else {
                     if (!wsgi_daemon_shutdown) {
@@ -10694,10 +10786,10 @@ static void *wsgi_deadlock_thread(apr_thread_t *thd, void *data)
                      "process '%s'.", getpid(), daemon->group->name);
     }
 
-    apr_thread_mutex_lock(wsgi_shutdown_lock);
+    apr_thread_mutex_lock(wsgi_monitor_lock);
     wsgi_deadlock_shutdown_time = apr_time_now();
     wsgi_deadlock_shutdown_time += wsgi_deadlock_timeout;
-    apr_thread_mutex_unlock(wsgi_shutdown_lock);
+    apr_thread_mutex_unlock(wsgi_monitor_lock);
 
     while (1) {
         apr_sleep(apr_time_from_sec(1));
@@ -10705,10 +10797,10 @@ static void *wsgi_deadlock_thread(apr_thread_t *thd, void *data)
         gilstate = PyGILState_Ensure();
         PyGILState_Release(gilstate);
 
-        apr_thread_mutex_lock(wsgi_shutdown_lock);
+        apr_thread_mutex_lock(wsgi_monitor_lock);
         wsgi_deadlock_shutdown_time = apr_time_now();
         wsgi_deadlock_shutdown_time += wsgi_deadlock_timeout;
-        apr_thread_mutex_unlock(wsgi_shutdown_lock);
+        apr_thread_mutex_unlock(wsgi_monitor_lock);
     }
 
     return NULL;
@@ -10752,12 +10844,12 @@ static void *wsgi_monitor_thread(apr_thread_t *thd, void *data)
 
         now = apr_time_now();
 
-        apr_thread_mutex_lock(wsgi_shutdown_lock);
+        apr_thread_mutex_lock(wsgi_monitor_lock);
         deadlock_time = wsgi_deadlock_shutdown_time;
         idle_time = wsgi_idle_shutdown_time;
         busy_time = wsgi_busy_shutdown_time;
         graceful_time = wsgi_graceful_shutdown_time;
-        apr_thread_mutex_unlock(wsgi_shutdown_lock);
+        apr_thread_mutex_unlock(wsgi_monitor_lock);
 
         if (!restart && wsgi_deadlock_timeout) {
             if (deadlock_time) {
@@ -10924,9 +11016,6 @@ static void wsgi_daemon_main(apr_pool_t *p, WSGIDaemonProcess *daemon)
     wsgi_graceful_timeout = daemon->group->graceful_timeout;
 
     if (wsgi_deadlock_timeout || wsgi_idle_timeout) {
-        apr_thread_mutex_create(&wsgi_shutdown_lock,
-                                APR_THREAD_MUTEX_UNNESTED, p);
-
         rv = apr_thread_create(&reaper, thread_attr, wsgi_monitor_thread,
                                daemon, p);
 
@@ -11068,10 +11157,10 @@ static void wsgi_daemon_main(apr_pool_t *p, WSGIDaemonProcess *daemon)
                 if (wsgi_active_requests) {
                     wsgi_daemon_graceful++;
 
-                    apr_thread_mutex_lock(wsgi_shutdown_lock);
+                    apr_thread_mutex_lock(wsgi_monitor_lock);
                     wsgi_graceful_shutdown_time = apr_time_now();
                     wsgi_graceful_shutdown_time += wsgi_graceful_timeout;
-                    apr_thread_mutex_unlock(wsgi_shutdown_lock);
+                    apr_thread_mutex_unlock(wsgi_monitor_lock);
 
                     ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
                                  "mod_wsgi (pid=%d): Exceeded CPU time "
@@ -11094,10 +11183,10 @@ static void wsgi_daemon_main(apr_pool_t *p, WSGIDaemonProcess *daemon)
                 if (wsgi_active_requests) {
                     wsgi_daemon_graceful++;
 
-                    apr_thread_mutex_lock(wsgi_shutdown_lock);
+                    apr_thread_mutex_lock(wsgi_monitor_lock);
                     wsgi_graceful_shutdown_time = apr_time_now();
                     wsgi_graceful_shutdown_time += wsgi_graceful_timeout;
-                    apr_thread_mutex_unlock(wsgi_shutdown_lock);
+                    apr_thread_mutex_unlock(wsgi_monitor_lock);
 
                     ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
                                  "mod_wsgi (pid=%d): Graceful shutdown "
@@ -11659,6 +11748,11 @@ static int wsgi_start_process(apr_pool_t *p, WSGIDaemonProcess *daemon)
         wsgi_newrelic_environment = daemon->group->newrelic_environment;
 
         wsgi_python_child_init(wsgi_daemon_pool);
+
+        /* Create lock for request monitoring. */
+
+        apr_thread_mutex_create(&wsgi_monitor_lock,
+                                APR_THREAD_MUTEX_UNNESTED, p);
 
         /*
          * Create socket wrapper for listener file descriptor
@@ -13434,6 +13528,8 @@ static int wsgi_hook_init(apr_pool_t *pconf, apr_pool_t *ptemp,
 
 static void wsgi_hook_child_init(apr_pool_t *p, server_rec *s)
 {
+    int rv;
+
 #if defined(MOD_WSGI_WITH_DAEMONS) 
     WSGIProcessGroup *entries = NULL;
     WSGIProcessGroup *entry = NULL;
@@ -13472,6 +13568,11 @@ static void wsgi_hook_child_init(apr_pool_t *p, server_rec *s)
 
         wsgi_python_child_init(p);
     }
+
+    /* Create lock for request monitoring. */
+
+    apr_thread_mutex_create(&wsgi_monitor_lock,
+                            APR_THREAD_MUTEX_UNNESTED, p);
 }
 
 #include "apr_lib.h"
