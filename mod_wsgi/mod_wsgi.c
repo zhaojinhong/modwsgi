@@ -3166,7 +3166,8 @@ static PyObject *Adapter_environ(AdapterObject *self)
      */
 
     if (!wsgi_daemon_pool && self->config->pass_apache_request) {
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 2
+#if (PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 2) || \
+    (PY_MAJOR_VERSION == 2 && PY_MINOR_VERSION >= 7)
         object = PyCapsule_New(self->r, 0, 0);
 #else
         object = PyCObject_FromVoidPtr(self->r, 0);
@@ -3197,17 +3198,17 @@ static PyObject *Adapter_environ(AdapterObject *self)
      * number of current requests running.
      */
 
-    object = PyInt_FromLong(wsgi_active_requests);
+    object = PyLong_FromLong(wsgi_active_requests);
     PyDict_SetItemString(vars, "mod_wsgi.active_requests", object);
     Py_DECREF(object);
 
 #if defined(MOD_WSGI_WITH_DAEMONS)
     if (wsgi_daemon_process) {
-        object = PyInt_FromLong(wsgi_daemon_process->group->processes);
+        object = PyLong_FromLong(wsgi_daemon_process->group->processes);
         PyDict_SetItemString(vars, "mod_wsgi.available_processes", object);
         Py_DECREF(object);
 
-        object = PyInt_FromLong(wsgi_daemon_process->group->threads);
+        object = PyLong_FromLong(wsgi_daemon_process->group->threads);
         PyDict_SetItemString(vars, "mod_wsgi.threads_per_process", object);
         Py_DECREF(object);
     }
@@ -3227,11 +3228,11 @@ static PyObject *Adapter_environ(AdapterObject *self)
         max_threads = (max_threads <= 0) ? 1 : max_threads;
         max_processes = (max_processes <= 0) ? 1 : max_processes;
 
-        object = PyInt_FromLong(max_processes);
+        object = PyLong_FromLong(max_processes);
         PyDict_SetItemString(vars, "mod_wsgi.available_processes", object);
         Py_DECREF(object);
 
-        object = PyInt_FromLong(max_threads);
+        object = PyLong_FromLong(max_threads);
         PyDict_SetItemString(vars, "mod_wsgi.threads_per_process", object);
         Py_DECREF(object);
     }
@@ -3251,11 +3252,11 @@ static PyObject *Adapter_environ(AdapterObject *self)
     max_threads = (max_threads <= 0) ? 1 : max_threads;
     max_processes = (max_processes <= 0) ? 1 : max_processes;
 
-    object = PyInt_FromLong(max_processes);
+    object = PyLong_FromLong(max_processes);
     PyDict_SetItemString(vars, "mod_wsgi.available_processes", object);
     Py_DECREF(object);
 
-    object = PyInt_FromLong(max_threads);
+    object = PyLong_FromLong(max_threads);
     PyDict_SetItemString(vars, "mod_wsgi.threads_per_process", object);
     Py_DECREF(object);
 #endif
@@ -8513,7 +8514,8 @@ static PyObject *Dispatch_environ(DispatchObject *self, const char *group)
      */
 
     if (!wsgi_daemon_pool && self->config->pass_apache_request) {
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 2
+#if (PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 2) || \
+    (PY_MAJOR_VERSION == 2 && PY_MINOR_VERSION >= 7)
         object = PyCapsule_New(self->r, 0, 0);
 #else
         object = PyCObject_FromVoidPtr(self->r, 0);
@@ -13962,7 +13964,8 @@ static PyObject *Auth_environ(AuthObject *self, const char *group)
      */
 
     if (!wsgi_daemon_pool && self->config->pass_apache_request) {
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 2
+#if (PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 2) || \
+    (PY_MAJOR_VERSION == 2 && PY_MINOR_VERSION >= 7)
         object = PyCapsule_New(self->r, 0, 0);
 #else
         object = PyCObject_FromVoidPtr(self->r, 0);
