@@ -97,7 +97,6 @@ static apr_time_t volatile wsgi_graceful_shutdown_time = 0;
 /* Request tracking and timing. */
 
 static apr_thread_mutex_t* wsgi_monitor_lock = NULL;
-static int wsgi_active_requests = 0;
 
 /* New Relic monitoring agent. */
 
@@ -926,6 +925,66 @@ static WSGIRequestConfig *wsgi_create_req_config(apr_pool_t *p, request_rec *r)
 
     return config;
 }
+
+/*
+ * Thread utilisation. On start and end of requests,
+ * and when utilisation is requested, we acrue an
+ * ongoing utilisation time value so can monitor how
+ * busy we are handling requests.
+ */
+
+static int wsgi_active_requests = 0;
+static double wsgi_thread_utilization = 0.0;
+static apr_time_t wsgi_utilization_last = 0;
+
+static double wsgi_utilization_time(int adjustment)
+{
+    apr_time_t now;
+    double utilization = wsgi_thread_utilization;
+    
+    apr_thread_mutex_lock(wsgi_monitor_lock);
+
+    now = apr_time_now();
+
+    if (wsgi_utilization_last != 0.0) {
+        utilization = (now - wsgi_utilization_last) / 1000000.0;
+
+        if (utilization < 0)
+            utilization = 0;
+
+        utilization = wsgi_active_requests * utilization;
+        wsgi_thread_utilization += utilization;
+        utilization = wsgi_thread_utilization;
+    }
+
+    wsgi_utilization_last = now;
+    wsgi_active_requests += adjustment;
+
+    apr_thread_mutex_unlock(wsgi_monitor_lock);
+
+    return utilization;
+}
+
+static double wsgi_start_request()
+{
+    return wsgi_utilization_time(1);
+}
+
+static double wsgi_end_request()
+{
+    return wsgi_utilization_time(-1);
+}
+
+PyObject *wsgi_get_thread_utilization(PyObject *self, PyObject *args)
+{
+    return PyFloat_FromDouble(wsgi_utilization_time(0));
+}
+
+static PyMethodDef wsgi_get_utilization_method[] = {
+    { "thread_utilization", (PyCFunction)wsgi_get_thread_utilization,
+                            METH_NOARGS, 0 },
+    { NULL },
+};
 
 /*
  * Apache 2.X and UNIX specific definitions related to
@@ -3026,11 +3085,6 @@ static PyObject *Adapter_environ(AdapterObject *self)
 
     const char *scheme = NULL;
 
-    int max_threads = 0;
-    int max_processes = 0;
-    int is_threaded = 0;
-    int is_forked = 0;
-
     /* Create the WSGI environment dictionary. */
 
     vars = PyDict_New();
@@ -3191,74 +3245,6 @@ static PyObject *Adapter_environ(AdapterObject *self)
         PyDict_SetItemString(vars, "mod_ssl.var_lookup", object);
         Py_DECREF(object);
     }
-#endif
-
-    /*
-     * Add information about request thread pool size and the
-     * number of current requests running.
-     */
-
-    object = PyLong_FromLong(wsgi_active_requests);
-    PyDict_SetItemString(vars, "mod_wsgi.active_requests", object);
-    Py_DECREF(object);
-
-#if defined(MOD_WSGI_WITH_DAEMONS)
-    if (wsgi_daemon_process) {
-        object = PyLong_FromLong(wsgi_daemon_process->group->processes);
-        PyDict_SetItemString(vars, "mod_wsgi.available_processes", object);
-        Py_DECREF(object);
-
-        object = PyLong_FromLong(wsgi_daemon_process->group->threads);
-        PyDict_SetItemString(vars, "mod_wsgi.threads_per_process", object);
-        Py_DECREF(object);
-    }
-    else {
-        ap_mpm_query(AP_MPMQ_IS_THREADED, &is_threaded);
-        if (is_threaded != AP_MPMQ_NOT_SUPPORTED) {
-            ap_mpm_query(AP_MPMQ_MAX_THREADS, &max_threads);
-        }
-        ap_mpm_query(AP_MPMQ_IS_FORKED, &is_forked);
-        if (is_forked != AP_MPMQ_NOT_SUPPORTED) {
-            ap_mpm_query(AP_MPMQ_MAX_DAEMON_USED, &max_processes);
-            if (max_processes == -1) {
-                ap_mpm_query(AP_MPMQ_MAX_DAEMONS, &max_processes);
-            }
-        }
-
-        max_threads = (max_threads <= 0) ? 1 : max_threads;
-        max_processes = (max_processes <= 0) ? 1 : max_processes;
-
-        object = PyLong_FromLong(max_processes);
-        PyDict_SetItemString(vars, "mod_wsgi.available_processes", object);
-        Py_DECREF(object);
-
-        object = PyLong_FromLong(max_threads);
-        PyDict_SetItemString(vars, "mod_wsgi.threads_per_process", object);
-        Py_DECREF(object);
-    }
-#else
-    ap_mpm_query(AP_MPMQ_IS_THREADED, &is_threaded);
-    if (is_threaded != AP_MPMQ_NOT_SUPPORTED) {
-        ap_mpm_query(AP_MPMQ_MAX_THREADS, &max_threads);
-    }
-    ap_mpm_query(AP_MPMQ_IS_FORKED, &is_forked);
-    if (is_forked != AP_MPMQ_NOT_SUPPORTED) {
-        ap_mpm_query(AP_MPMQ_MAX_DAEMON_USED, &max_processes);
-        if (max_processes == -1) {
-            ap_mpm_query(AP_MPMQ_MAX_DAEMONS, &max_processes);
-        }
-    }
-
-    max_threads = (max_threads <= 0) ? 1 : max_threads;
-    max_processes = (max_processes <= 0) ? 1 : max_processes;
-
-    object = PyLong_FromLong(max_processes);
-    PyDict_SetItemString(vars, "mod_wsgi.available_processes", object);
-    Py_DECREF(object);
-
-    object = PyLong_FromLong(max_threads);
-    PyDict_SetItemString(vars, "mod_wsgi.threads_per_process", object);
-    Py_DECREF(object);
 #endif
 
     return vars;
@@ -4228,6 +4214,11 @@ static InterpreterObject *newInterpreterObject(const char *name)
     PyObject *object = NULL;
     PyObject *item = NULL;
 
+    int max_threads = 0;
+    int max_processes = 0;
+    int is_threaded = 0;
+    int is_forked = 0;
+
     /* Create handle for interpreter and local data. */
 
     self = PyObject_New(InterpreterObject, &Interpreter_Type);
@@ -4833,6 +4824,62 @@ static InterpreterObject *newInterpreterObject(const char *name)
     PyModule_AddObject(module, "application_group",
                        PyString_FromString(name));
 #endif
+
+#if defined(MOD_WSGI_WITH_DAEMONS)
+    if (wsgi_daemon_process) {
+        object = PyLong_FromLong(wsgi_daemon_process->group->processes);
+        PyModule_AddObject(module, "maximum_processes", object);
+
+        object = PyLong_FromLong(wsgi_daemon_process->group->threads);
+        PyModule_AddObject(module, "threads_per_process", object);
+    }
+    else {
+        ap_mpm_query(AP_MPMQ_IS_THREADED, &is_threaded);
+        if (is_threaded != AP_MPMQ_NOT_SUPPORTED) {
+            ap_mpm_query(AP_MPMQ_MAX_THREADS, &max_threads);
+        }
+        ap_mpm_query(AP_MPMQ_IS_FORKED, &is_forked);
+        if (is_forked != AP_MPMQ_NOT_SUPPORTED) {
+            ap_mpm_query(AP_MPMQ_MAX_DAEMON_USED, &max_processes);
+            if (max_processes == -1) {
+                ap_mpm_query(AP_MPMQ_MAX_DAEMONS, &max_processes);
+            }
+        }
+
+        max_threads = (max_threads <= 0) ? 1 : max_threads;
+        max_processes = (max_processes <= 0) ? 1 : max_processes;
+
+        object = PyLong_FromLong(max_processes);
+        PyModule_AddObject(module, "available_processes", object);
+
+        object = PyLong_FromLong(max_threads);
+        PyModule_AddObject(module, "threads_per_process", object);
+    }
+#else
+    ap_mpm_query(AP_MPMQ_IS_THREADED, &is_threaded);
+    if (is_threaded != AP_MPMQ_NOT_SUPPORTED) {
+        ap_mpm_query(AP_MPMQ_MAX_THREADS, &max_threads);
+    }
+    ap_mpm_query(AP_MPMQ_IS_FORKED, &is_forked);
+    if (is_forked != AP_MPMQ_NOT_SUPPORTED) {
+        ap_mpm_query(AP_MPMQ_MAX_DAEMON_USED, &max_processes);
+        if (max_processes == -1) {
+            ap_mpm_query(AP_MPMQ_MAX_DAEMONS, &max_processes);
+        }
+    }
+
+    max_threads = (max_threads <= 0) ? 1 : max_threads;
+    max_processes = (max_processes <= 0) ? 1 : max_processes;
+
+    object = PyLong_FromLong(max_processes);
+    PyModule_AddObject(module, "available_processes", object);
+
+    object = PyLong_FromLong(max_threads);
+    PyModule_AddObject(module, "threads_per_process", object);
+#endif
+
+    PyModule_AddObject(module, "thread_utilization", PyCFunction_New(
+                       &wsgi_get_utilization_method[0], NULL));
 
     Py_DECREF(module);
 
@@ -6563,11 +6610,8 @@ static int wsgi_execute_script(request_rec *r)
 
     /* If embedded mode, need to do request count. */
 
-    if (!wsgi_daemon_pool) {
-        apr_thread_mutex_lock(wsgi_monitor_lock);
-        wsgi_active_requests++;
-        apr_thread_mutex_unlock(wsgi_monitor_lock);
-    }
+    if (!wsgi_daemon_pool)
+        wsgi_start_request();
 
     /* Load module if not already loaded. */
 
@@ -6665,11 +6709,8 @@ static int wsgi_execute_script(request_rec *r)
 
     /* If embedded mode, need to do request count. */
 
-    if (!wsgi_daemon_pool) {
-        apr_thread_mutex_lock(wsgi_monitor_lock);
-        wsgi_active_requests--;
-        apr_thread_mutex_unlock(wsgi_monitor_lock);
-    }
+    if (!wsgi_daemon_pool)
+        wsgi_end_request();
 
     wsgi_release_interpreter(interp);
 
@@ -10662,9 +10703,7 @@ static void wsgi_daemon_worker(apr_pool_t *p, WSGIDaemonThread *thread)
 
         /* Process the request proxied from the child process. */
 
-        apr_thread_mutex_lock(wsgi_monitor_lock);
-        wsgi_active_requests++;
-        apr_thread_mutex_unlock(wsgi_monitor_lock);
+        wsgi_start_request();
 
         bucket_alloc = apr_bucket_alloc_create(ptrans);
         wsgi_process_socket(ptrans, socket, bucket_alloc, daemon);
@@ -10677,9 +10716,7 @@ static void wsgi_daemon_worker(apr_pool_t *p, WSGIDaemonThread *thread)
 
         /* Check to see if maximum number of requests reached. */
 
-        apr_thread_mutex_lock(wsgi_monitor_lock);
-        wsgi_active_requests--;
-        apr_thread_mutex_unlock(wsgi_monitor_lock);
+        wsgi_end_request();
 
         if (daemon->group->maximum_requests) {
             if (--wsgi_request_count <= 0) {
