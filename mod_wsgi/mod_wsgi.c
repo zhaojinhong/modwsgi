@@ -37,6 +37,9 @@ static PyTypeObject Auth_Type;
 #endif
 #if AP_MODULE_MAGIC_AT_LEAST(20060110,0)
 #define MOD_WSGI_WITH_AUTHZ_PROVIDER 1
+#if AP_MODULE_MAGIC_AT_LEAST(20100919,0)
+#define MOD_WSGI_WITH_AUTHZ_PROVIDER_PARSED 1
+#endif
 #endif
 
 #if defined(MOD_WSGI_WITH_AUTHN_PROVIDER)
@@ -965,12 +968,12 @@ static double wsgi_utilization_time(int adjustment)
     return utilization;
 }
 
-static double wsgi_start_request()
+static double wsgi_start_request(void)
 {
     return wsgi_utilization_time(1);
 }
 
-static double wsgi_end_request()
+static double wsgi_end_request(void)
 {
     return wsgi_utilization_time(-1);
 }
@@ -4850,7 +4853,7 @@ static InterpreterObject *newInterpreterObject(const char *name)
         max_processes = (max_processes <= 0) ? 1 : max_processes;
 
         object = PyLong_FromLong(max_processes);
-        PyModule_AddObject(module, "available_processes", object);
+        PyModule_AddObject(module, "maximum_processes", object);
 
         object = PyLong_FromLong(max_threads);
         PyModule_AddObject(module, "threads_per_process", object);
@@ -4872,7 +4875,7 @@ static InterpreterObject *newInterpreterObject(const char *name)
     max_processes = (max_processes <= 0) ? 1 : max_processes;
 
     object = PyLong_FromLong(max_processes);
-    PyModule_AddObject(module, "available_processes", object);
+    PyModule_AddObject(module, "maximum_processes", object);
 
     object = PyLong_FromLong(max_threads);
     PyModule_AddObject(module, "threads_per_process", object);
@@ -5587,7 +5590,7 @@ static void wsgi_python_version(void)
     }
 }
 
-static apr_status_t wsgi_python_term()
+static apr_status_t wsgi_python_term(void)
 {
     PyObject *module = NULL;
 
@@ -10437,7 +10440,7 @@ static apr_status_t wsgi_worker_acquire(int id)
     }
 }
 
-static apr_status_t wsgi_worker_release()
+static apr_status_t wsgi_worker_release(void)
 {
     WSGIThreadStack *stack = wsgi_worker_stack;
 
@@ -10486,7 +10489,7 @@ static apr_status_t wsgi_worker_release()
     }
 }
 
-static apr_status_t wsgi_worker_shutdown()
+static apr_status_t wsgi_worker_shutdown(void)
 {
     int i;
     apr_status_t rv;
@@ -15387,8 +15390,14 @@ static int wsgi_hook_check_user_id(request_rec *r)
 
 #if defined(MOD_WSGI_WITH_AUTHZ_PROVIDER)
 
+#if MOD_WSGI_WITH_AUTHZ_PROVIDER_PARSED
+static authz_status wsgi_check_authorization(request_rec *r,
+                                             const char *require_args,
+                                             const void *parsed_require_line)
+#else
 static authz_status wsgi_check_authorization(request_rec *r,
                                              const char *require_args)
+#endif
 {
     WSGIRequestConfig *config;
 
@@ -15437,6 +15446,9 @@ static authz_status wsgi_check_authorization(request_rec *r,
 static const authz_provider wsgi_authz_provider =
 {
     &wsgi_check_authorization,
+#if MOD_WSGI_WITH_AUTHZ_PROVIDER_PARSED
+    NULL,
+#endif
 };
 
 #else

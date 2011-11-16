@@ -22,6 +22,8 @@
 
 /* ------------------------------------------------------------------------- */
 
+#if !AP_MODULE_MAGIC_AT_LEAST(20051115,0)
+
 void wsgi_ap_close_listeners(void)
 {
     ap_listen_rec *lr;
@@ -32,7 +34,13 @@ void wsgi_ap_close_listeners(void)
     }
 }
 
+#endif
+
 /* ------------------------------------------------------------------------- */
+
+#if (APR_MAJOR_VERSION == 0) && \
+    (APR_MINOR_VERSION == 9) && \
+    (APR_PATCH_VERSION < 5)
 
 apr_status_t wsgi_apr_unix_file_cleanup(void *thefile)
 {
@@ -41,7 +49,11 @@ apr_status_t wsgi_apr_unix_file_cleanup(void *thefile)
     return apr_file_close(file);
 }
 
+#endif
+
 /* ------------------------------------------------------------------------- */
+
+#if defined(WIN32) && defined(APR_HAS_UNICODE_FS)
 
 apr_status_t wsgi_apr_os_pipe_put_ex(apr_file_t **file,
                                      apr_os_file_t *thefile,
@@ -60,6 +72,8 @@ apr_status_t wsgi_apr_os_pipe_put_ex(apr_file_t **file,
 
     return rv;
 }
+
+#endif
 
 /* ------------------------------------------------------------------------- */
 

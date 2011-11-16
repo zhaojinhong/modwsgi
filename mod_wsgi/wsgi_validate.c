@@ -18,6 +18,8 @@
 
 /* ------------------------------------------------------------------------- */
 
+#include "wsgi_validate.h"
+
 #include "wsgi_convert.h"
 
 #include <ctype.h>
