@@ -43,6 +43,7 @@
 #include "compile.h"
 #include "node.h"
 #include "osdefs.h"
+#include "frameobject.h"
 
 #ifndef PyVarObject_HEAD_INIT
 #define PyVarObject_HEAD_INIT(type, size)       \

@@ -939,6 +939,7 @@ static WSGIRequestConfig *wsgi_create_req_config(apr_pool_t *p, request_rec *r)
 static int wsgi_active_requests = 0;
 static double wsgi_thread_utilization = 0.0;
 static apr_time_t wsgi_utilization_last = 0;
+static int wsgi_dump_blocked_requests = 0;
 
 static double wsgi_utilization_time(int adjustment)
 {
@@ -10954,6 +10955,8 @@ static void *wsgi_monitor_thread(apr_thread_t *thd, void *data)
                                      "stopping process '%s'.", getpid(),
                                      group->name);
 
+                        wsgi_dump_blocked_requests = 1;
+
                         restart = 1;
                     }
                     else {
@@ -11011,6 +11014,119 @@ static void *wsgi_monitor_thread(apr_thread_t *thd, void *data)
     }
 
     return NULL;
+}
+
+static void wsgi_log_stack_traces()
+{
+    PyGILState_STATE state;
+
+    PyObject *threads = NULL;
+
+    /*
+     * This should only be called on shutdown so don't try and log
+     * any errors, just dump them straight out.
+     */
+
+    state = PyGILState_Ensure();
+
+    threads = _PyThread_CurrentFrames();
+
+    if (threads && PyDict_Size(threads) != 0) {
+        PyObject *seq = NULL;
+
+        seq = PyObject_GetIter(threads);
+
+        if (seq) {
+            PyObject *id = NULL;
+            PyObject *frame = NULL;
+
+            Py_ssize_t i = 0;
+
+            ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
+                          "mod_wsgi (pid=%d): Dumping stack trace for "
+                          "active Python threads.", getpid());
+
+            while (PyDict_Next(threads, &i, &id, &frame)) {
+                long thread_id = 0;
+
+                PyFrameObject *current = NULL;
+
+                thread_id = PyLong_AsLong(id);
+
+                current = (PyFrameObject *)frame;
+
+                while (current) {
+                    int lineno;
+
+                    PyObject *filename = NULL;
+                    PyObject *name = NULL;
+
+                    lineno = current->f_lineno;
+
+#if PY_MAJOR_VERSION > 3
+                    filename = PyUnicode_EncodeUTF8(
+                            current->f_code->co_filename);
+                    name = PyUnicode_EncodeUTF8(
+                            current->f_code->co_name);
+#else
+                    Py_INCREF(current->f_code->co_filename);
+                    filename = current->f_code->co_filename;
+                    Py_INCREF(current->f_code->co_name);
+                    name = current->f_code->co_name;
+#endif
+
+                    if (current == (PyFrameObject *)frame) {
+                        ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
+                                "mod_wsgi (pid=%d): Thread %ld executing "
+                                "file \"%s\", line %d, in %s", getpid(),
+                                thread_id, PyString_AsString(filename),
+                                lineno, PyString_AsString(name));
+                    }
+                    else {
+                        if (current->f_back) {
+                            ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
+                                    "mod_wsgi (pid=%d): called from file "
+                                    "\"%s\", line %d, in %s,", getpid(),
+                                    PyString_AsString(filename), lineno,
+                                    PyString_AsString(name));
+                        }
+                        else {
+                            ap_log_error(APLOG_MARK, APLOG_INFO, 0, wsgi_server,
+                                    "mod_wsgi (pid=%d): called from file "
+                                    "\"%s\", line %d, in %s.", getpid(),
+                                    PyString_AsString(filename), lineno,
+                                    PyString_AsString(name));
+                        }
+                    }
+
+                    Py_DECREF(filename);
+                    Py_DECREF(name);
+
+                    current = current->f_back;
+                }
+            }
+        }
+        else {
+            ap_log_error(APLOG_MARK, APLOG_ERR, 0, wsgi_server,
+                          "mod_wsgi (pid=%d): Failed to iterate over "
+                          "current frames for active threads.", getpid());
+
+            PyErr_Print();
+            PyErr_Clear();
+        }
+    }
+    else {
+        ap_log_error(APLOG_MARK, APLOG_ERR, 0, wsgi_server,
+                      "mod_wsgi (pid=%d): Failed to get current frames "
+                      "for active threads.", getpid());
+
+        PyErr_Print();
+        PyErr_Clear();
+    }
+
+    Py_XDECREF(threads);
+
+    PyGILState_Release(state);
 }
 
 static void wsgi_daemon_main(apr_pool_t *p, WSGIDaemonProcess *daemon)
@@ -11271,6 +11387,15 @@ static void wsgi_daemon_main(apr_pool_t *p, WSGIDaemonProcess *daemon)
                          daemon->group->name);
         }
     }
+
+    /*
+     * If shutting down process due to reach block requests
+     * limit, then try and dump out stack traces of any threads
+     * which are running as a debugging aid.
+     */
+
+    if (wsgi_dump_blocked_requests)
+        wsgi_log_stack_traces();
 
     /*
      * Attempt a graceful shutdown by waiting for any
