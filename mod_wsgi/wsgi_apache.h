@@ -125,7 +125,7 @@ extern apr_status_t wsgi_apr_os_pipe_put_ex(apr_file_t **, apr_os_file_t *,
 typedef apr_uint16_t apr_wchar_t;
 extern apr_status_t wsgi_utf8_to_unicode_path(apr_wchar_t* retstr,
                                               apr_size_t retlen, 
-                                              const char* srcstr)
+                                              const char* srcstr);
 #endif
 
 /* ------------------------------------------------------------------------- */

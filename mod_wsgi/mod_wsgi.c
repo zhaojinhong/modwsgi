@@ -6070,7 +6070,7 @@ static PyObject *wsgi_load_source(apr_pool_t *pool, request_rec *r,
         return NULL;
     }
 
-    fp = _wfopen(wfilename, "r");
+    fp = _wfopen(wfilename, L"r");
 #else
     fp = fopen(filename, "r");
 #endif
