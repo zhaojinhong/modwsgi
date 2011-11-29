@@ -1069,6 +1069,7 @@ typedef struct {
     apr_time_t inactivity_timeout;
     apr_time_t blocked_timeout;
     apr_time_t graceful_timeout;
+    int listen_backlog;
     const char *display_name;
     int send_buffer_size;
     int recv_buffer_size;
@@ -9403,6 +9404,8 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
     int blocked_timeout = 0;
     int graceful_timeout = 0;
 
+    int listen_backlog = WSGI_LISTEN_BACKLOG;
+
     const char *display_name = NULL;
 
     int send_buffer_size = 0;
@@ -9602,6 +9605,14 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
             if (graceful_timeout < 0)
                 return "Invalid graceful timeout for WSGI daemon process.";
         }
+        else if (!strcmp(option, "listen-backlog")) {
+            if (!*value)
+                return "Invalid listen backlog for WSGI daemon process.";
+
+            listen_backlog = atoi(value);
+            if (listen_backlog < 0)
+                return "Invalid listen backlog for WSGI daemon process.";
+        }
         else if (!strcmp(option, "display-name")) {
             display_name = value;
         }
@@ -9789,6 +9800,8 @@ static const char *wsgi_add_daemon_process(cmd_parms *cmd, void *mconfig,
     entry->inactivity_timeout = apr_time_from_sec(inactivity_timeout);
     entry->blocked_timeout = apr_time_from_sec(blocked_timeout);
     entry->graceful_timeout = apr_time_from_sec(graceful_timeout);
+
+    entry->listen_backlog = listen_backlog;
 
     entry->display_name = display_name;
 
@@ -10271,7 +10284,11 @@ static int wsgi_setup_socket(WSGIProcessGroup *process)
         return -1;
     }
 
-    if (listen(sockfd, WSGI_LISTEN_BACKLOG) < 0) {
+    ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, wsgi_server,
+                 "mod_wsgi (pid=%d): Listen backlog for socket '%s' is '%d'.",
+                 getpid(), process->socket, process->listen_backlog);
+
+    if (listen(sockfd, process->listen_backlog) < 0) {
         ap_log_error(APLOG_MARK, APLOG_ALERT, errno, wsgi_server,
                      "mod_wsgi (pid=%d): Couldn't listen on unix domain "
                      "socket.", getpid());
