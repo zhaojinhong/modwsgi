@@ -1515,8 +1515,14 @@ static PyObject *Log_writelines(LogObject *self, PyObject *args)
 
     while ((item = PyIter_Next(iterator))) {
         PyObject *result = NULL;
+        PyObject *args = NULL;
 
-        result = Log_write(self, item);
+        args = PyTuple_Pack(1, item);
+
+        result = Log_write(self, args);
+
+        Py_DECREF(args);
+        Py_DECREF(item);
 
         if (!result) {
             Py_DECREF(iterator);
@@ -12213,13 +12219,13 @@ static int wsgi_connect_daemon(request_rec *r, WSGIDaemonSocket *daemon)
 
                 /*
                  * Progressively increase time we wait between
-                 * connection attempts. Start at 0.1 second and
-                 * double each time but apply ceiling at 2.0
+                 * connection attempts. Start at 0.125 second and
+                 * double each time but apply ceiling at 4.0
                  * seconds.
                  */
 
                 if (!timer)
-                    timer = apr_time_make(0, 100000);
+                    timer = apr_time_make(0, 125000);
 
                 apr_sleep(timer);
 
@@ -13759,6 +13765,11 @@ static void wsgi_hook_child_init(apr_pool_t *p, server_rec *s)
     }
 #endif
 
+    /* Create lock for request monitoring. */
+
+    apr_thread_mutex_create(&wsgi_monitor_lock,
+                            APR_THREAD_MUTEX_UNNESTED, p);
+
     if (wsgi_python_required) {
         /*
          * Initialise Python if required to be done in
@@ -13777,11 +13788,6 @@ static void wsgi_hook_child_init(apr_pool_t *p, server_rec *s)
 
         wsgi_python_child_init(p);
     }
-
-    /* Create lock for request monitoring. */
-
-    apr_thread_mutex_create(&wsgi_monitor_lock,
-                            APR_THREAD_MUTEX_UNNESTED, p);
 }
 
 #include "apr_lib.h"
