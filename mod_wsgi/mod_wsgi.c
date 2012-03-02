@@ -10373,6 +10373,17 @@ static void wsgi_process_socket(apr_pool_t *p, apr_socket_t *sock,
     }
     apr_sockaddr_ip_get(&c->local_ip, c->local_addr);
 
+#if AP_MODULE_MAGIC_AT_LEAST(20111130,0)
+    if ((rv = apr_socket_addr_get(&c->client_addr, APR_REMOTE, sock))
+        != APR_SUCCESS) {
+        ap_log_error(APLOG_MARK, APLOG_INFO, rv, wsgi_server,
+                     "mod_wsgi (pid=%d): Failed call "
+                     "apr_socket_addr_get(APR_REMOTE).", getpid());
+        apr_socket_close(sock);
+        return;
+    }
+    apr_sockaddr_ip_get(&c->client_ip, c->client_addr);
+#else
     if ((rv = apr_socket_addr_get(&c->remote_addr, APR_REMOTE, sock))
         != APR_SUCCESS) {
         ap_log_error(APLOG_MARK, APLOG_INFO, rv, wsgi_server,
@@ -10382,6 +10393,7 @@ static void wsgi_process_socket(apr_pool_t *p, apr_socket_t *sock,
         return;
     }
     apr_sockaddr_ip_get(&c->remote_ip, c->remote_addr);
+#endif
 
     c->base_server = daemon->group->server;
 
@@ -13447,8 +13459,13 @@ static int wsgi_hook_daemon_handler(conn_rec *c)
      * file for the host.
      */
 
+#if AP_MODULE_MAGIC_AT_LEAST(20111130,0)
+    r->connection->client_ip = (char *)apr_table_get(r->subprocess_env,
+                                                     "REMOTE_ADDR");
+#else
     r->connection->remote_ip = (char *)apr_table_get(r->subprocess_env,
                                                      "REMOTE_ADDR");
+#endif
 
     key = apr_psprintf(p, "%s|%s",
                        apr_table_get(r->subprocess_env,
@@ -13999,6 +14016,18 @@ static PyObject *Auth_environ(AuthObject *self, const char *group)
         Py_DECREF(object);
     }
 
+#if AP_MODULE_MAGIC_AT_LEAST(20111130,0)
+    if (r->useragent_ip) {
+        value = r->useragent_ip;
+#if PY_MAJOR_VERSION >= 3
+        object = PyUnicode_DecodeLatin1(value, strlen(value), NULL);
+#else
+        object = PyString_FromString(value);
+#endif
+        PyDict_SetItemString(vars, "REMOTE_ADDR", object);
+        Py_DECREF(object);
+    }
+#else
     if (c->remote_ip) {
         value = c->remote_ip;
 #if PY_MAJOR_VERSION >= 3
@@ -14009,6 +14038,7 @@ static PyObject *Auth_environ(AuthObject *self, const char *group)
         PyDict_SetItemString(vars, "REMOTE_ADDR", object);
         Py_DECREF(object);
     }
+#endif
 
 #if PY_MAJOR_VERSION >= 3
     value = ap_document_root(r);
@@ -14032,6 +14062,17 @@ static PyObject *Auth_environ(AuthObject *self, const char *group)
         Py_DECREF(object);
     }
 
+#if AP_MODULE_MAGIC_AT_LEAST(20111130,0)
+    rport = c->client_addr->port;
+    value = apr_itoa(r->pool, rport);
+#if PY_MAJOR_VERSION >= 3
+    object = PyUnicode_DecodeLatin1(value, strlen(value), NULL);
+#else
+    object = PyString_FromString(value);
+#endif
+    PyDict_SetItemString(vars, "REMOTE_PORT", object);
+    Py_DECREF(object);
+#else
     rport = c->remote_addr->port;
     value = apr_itoa(r->pool, rport);
 #if PY_MAJOR_VERSION >= 3
@@ -14041,6 +14082,7 @@ static PyObject *Auth_environ(AuthObject *self, const char *group)
 #endif
     PyDict_SetItemString(vars, "REMOTE_PORT", object);
     Py_DECREF(object);
+#endif
 
     value = r->protocol;
 #if PY_MAJOR_VERSION >= 3
@@ -15307,8 +15349,13 @@ static int wsgi_hook_access_checker(request_rec *r)
     host = ap_get_remote_host(r->connection, r->per_dir_config,
                               REMOTE_HOST, NULL);
 
+#if AP_MODULE_MAGIC_AT_LEAST(20111130,0)
+    if (!host)
+        host = r->useragent_ip;
+#else
     if (!host)
         host = r->connection->remote_ip;
+#endif
 
     allow = wsgi_allow_access(r, config, host);
 
