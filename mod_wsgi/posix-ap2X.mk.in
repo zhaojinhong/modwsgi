@@ -28,7 +28,7 @@ SRCFILES = wsgi_apache.c wsgi_convert.c wsgi_validate.c
 all : mod_wsgi.la
 
 mod_wsgi.la : mod_wsgi.c $(SRCFILES)
-	$(APXS) -c $(CPPFLAGS) $(CFLAGS) $< $(SRCFILES) $(LDFLAGS) $(LDLIBS)
+	$(APXS) -c $(CPPFLAGS) $(CFLAGS) mod_wsgi.c $(SRCFILES) $(LDFLAGS) $(LDLIBS)
 
 $(DESTDIR)$(LIBEXECDIR) :
 	mkdir -p $@
