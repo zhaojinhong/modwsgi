@@ -23,12 +23,12 @@ CFLAGS = @CFLAGS@
 LDFLAGS = @LDFLAGS@
 LDLIBS = @LDLIBS@
 
-SRCFILES = wsgi_apache.c wsgi_convert.c wsgi_validate.c
+SRCFILES = mod_wsgi.c wsgi_apache.c wsgi_convert.c wsgi_validate.c
 
 all : mod_wsgi.la
 
-mod_wsgi.la : mod_wsgi.c $(SRCFILES)
-	$(APXS) -c $(CPPFLAGS) $(CFLAGS) mod_wsgi.c $(SRCFILES) $(LDFLAGS) $(LDLIBS)
+mod_wsgi.la : $(SRCFILES)
+	$(APXS) -c $(CPPFLAGS) $(CFLAGS) $(SRCFILES) $(LDFLAGS) $(LDLIBS)
 
 $(DESTDIR)$(LIBEXECDIR) :
 	mkdir -p $@
