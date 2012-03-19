@@ -13632,6 +13632,8 @@ static int wsgi_hook_daemon_handler(conn_rec *c)
     return OK;
 }
 
+#endif
+
 /*
  * Apache 2.X module initialisation functions.
  */
@@ -15945,8 +15947,6 @@ module AP_MODULE_DECLARE_DATA wsgi_module = {
     wsgi_commands,             /* table of config file commands       */
     wsgi_register_hooks        /* register hooks                      */
 };
-
-#endif
 
 /* ------------------------------------------------------------------------- */
 
