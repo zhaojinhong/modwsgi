@@ -66,7 +66,7 @@ apr_status_t wsgi_apr_os_pipe_put_ex(apr_file_t **file,
 
     if (register_cleanup) {
         apr_pool_cleanup_register(pool, (void *)(*file),
-                                  wsgi_apr_unix_file_cleanup,
+                                  apr_unix_file_cleanup,
                                   apr_pool_cleanup_null);
     }
 
