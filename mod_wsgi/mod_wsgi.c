@@ -15792,6 +15792,8 @@ static void wsgi_register_hooks(apr_pool_t *p)
 
     static const char * const p6[] = { "mod_python.c", NULL };
 
+    static const char * const p7[] = { "mod_ssl.c", NULL };
+
     ap_hook_post_config(wsgi_hook_init, p6, NULL, APR_HOOK_MIDDLE);
     ap_hook_child_init(wsgi_hook_child_init, p6, NULL, APR_HOOK_MIDDLE);
 
@@ -15818,7 +15820,7 @@ static void wsgi_register_hooks(apr_pool_t *p)
     ap_register_provider(p, AUTHZ_PROVIDER_GROUP, "wsgi-group",
                          AUTHZ_PROVIDER_VERSION, &wsgi_authz_provider);
 #endif
-    ap_hook_access_checker(wsgi_hook_access_checker, NULL, n5, APR_HOOK_MIDDLE);
+    ap_hook_access_checker(wsgi_hook_access_checker, p7, n5, APR_HOOK_MIDDLE);
 }
 
 static const command_rec wsgi_commands[] =
