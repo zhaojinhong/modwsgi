@@ -36,7 +36,7 @@ SRCFILES = mod_wsgi.c wsgi_apache.c wsgi_convert.c wsgi_validate.c
 
 mod_wsgi.so : $(SRCFILES)
 	cl $(CPPFLAGS) $(CFLAGS) $(SRCFILES) /LD $(LDFLAGS) $(LDLIBS) /OUT:$@
-        mt -manifest $@.manifest -outputresource:$@;2
+	mt -manifest $@.manifest -outputresource:$@;2
 
 clean :
 	del *.obj *.so *.so.manifest *.lib *.exp
