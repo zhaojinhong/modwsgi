@@ -22,6 +22,8 @@
 
 /* ------------------------------------------------------------------------- */
 
+#if defined(MOD_WSGI_WITH_DAEMONS)
+
 #if !AP_MODULE_MAGIC_AT_LEAST(20051115,0)
 
 void wsgi_ap_close_listeners(void)
@@ -74,6 +76,8 @@ apr_status_t wsgi_apr_os_pipe_put_ex(apr_file_t **file,
 
     return rv;
 }
+
+#endif
 
 #endif
 
