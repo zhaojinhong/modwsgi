@@ -42,6 +42,8 @@ void wsgi_ap_close_listeners(void)
     (APR_MINOR_VERSION == 9) && \
     (APR_PATCH_VERSION < 5)
 
+#define apr_unix_file_cleanup wsgi_apr_unix_file_cleanup
+
 apr_status_t wsgi_apr_unix_file_cleanup(void *thefile)
 {
     apr_file_t *file = thefile;
