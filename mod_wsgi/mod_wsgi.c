@@ -12835,7 +12835,7 @@ static int wsgi_execute_remote(request_rec *r)
                 return HTTP_INTERNAL_SERVER_ERROR;
 
             /*
-             * Status must be zero for our special headers. Ideally
+             * Status must be 200 for our special headers. Ideally
              * we would use 0 as did in the past but Apache 2.4
              * complains if use 0 as not a valid status value.
              */
@@ -12993,14 +12993,15 @@ static int wsgi_execute_remote(request_rec *r)
         return HTTP_INTERNAL_SERVER_ERROR;
 
     /*
-     * Look for special case of status being 0 and
-     * translate it into a 500 error so that error
-     * document processing will occur for those cases
-     * where WSGI application wouldn't have supplied
-     * their own error document.
+     * Look for the special case of status being 200 but the
+     * status line indicating an error and translate it into a
+     * 500 error so that error document processing will occur
+     * for those cases where WSGI application wouldn't have
+     * supplied their own error document. We used to use 0
+     * here for status but Apache 2.4 prohibits it now.
      */
 
-    if (r->status == 0)
+    if (r->status == 200 && !strcmp(r->status_line, "200 Error"))
         return HTTP_INTERNAL_SERVER_ERROR;
 
     /*
