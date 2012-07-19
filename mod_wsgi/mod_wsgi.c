@@ -153,6 +153,8 @@ typedef struct {
     const char *python_path;
     const char *python_eggs;
 
+    const char *python_hash_seed;
+
     int restrict_embedded;
     int restrict_stdin;
     int restrict_stdout;
@@ -228,6 +230,8 @@ static WSGIServerConfig *newWSGIServerConfig(apr_pool_t *p)
     object->python_home = NULL;
     object->python_path = NULL;
     object->python_eggs = NULL;
+
+    object->python_hash_seed = NULL;
 
     object->restrict_embedded = -1;
     object->restrict_stdin = -1;
@@ -5782,6 +5786,22 @@ static void wsgi_python_init(apr_pool_t *p)
 #endif
 
         /*
+         * Set environment variable PYTHONHASHSEED. We need to
+         * make sure we remove the environment variable later
+         * so that it doesn't remain in the process environment
+         * and be inherited by execd sub processes.
+         */
+
+        if (wsgi_server_config->python_hash_seed != NULL) {
+            char *envvar = apr_pstrcat(p, "PYTHONHASHSEED=",
+                    wsgi_server_config->python_hash_seed, NULL);
+            ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, wsgi_server,
+                         "mod_wsgi (pid=%d): Setting hash seed to %s.",
+                         getpid(), wsgi_server_config->python_hash_seed);
+            putenv(envvar);
+        }
+
+        /*
          * Work around bug in Python 3.1 where it will crash
          * when used in non console application on Windows if
          * stdin/stdout have been initialised and aren't null.
@@ -5803,6 +5823,43 @@ static void wsgi_python_init(apr_pool_t *p)
 
         PyEval_InitThreads();
 
+        /*
+         * Remove the environment variable we set for the hash
+         * seed. This has to be done in os.environ, which will
+         * in turn remove it from process environ. This should
+         * only be necessary for the main interpreter. We need
+         * to do this before we release the GIL.
+         */
+
+        if (wsgi_server_config->python_hash_seed != NULL) {
+            PyObject *module = NULL;
+
+            module = PyImport_ImportModule("os");
+
+            if (module) {
+                PyObject *dict = NULL;
+                PyObject *object = NULL;
+                PyObject *key = NULL;
+
+                dict = PyModule_GetDict(module);
+                object = PyDict_GetItemString(dict, "environ");
+
+                if (object) {
+#if PY_MAJOR_VERSION >= 3
+                    key = PyUnicode_FromString("PYTHONHASHSEED");
+#else
+                    key = PyString_FromString("PYTHONHASHSEED");
+#endif
+
+                    PyObject_DelItem(object, key);
+
+                    Py_DECREF(key);
+                }
+
+                Py_DECREF(module);
+            }
+        }
+      
         /*
          * We now want to release the GIL. Before we do that
          * though we remember what the current thread state is.
@@ -7390,6 +7447,41 @@ static const char *wsgi_set_python_eggs(cmd_parms *cmd, void *mconfig,
 
     sconfig = ap_get_module_config(cmd->server->module_config, &wsgi_module);
     sconfig->python_eggs = f;
+
+    return NULL;
+}
+
+static const char *wsgi_set_python_hash_seed(cmd_parms *cmd, void *mconfig,
+                                             const char *f)
+{
+    const char *error = NULL;
+    WSGIServerConfig *sconfig = NULL;
+
+    error = ap_check_cmd_context(cmd, GLOBAL_ONLY);
+    if (error != NULL)
+        return error;
+
+    /*
+     * Must check this here because if we don't and is wrong, then
+     * Python interpreter will check later and may kill the process.
+     */
+
+    if (f && *f != '\0' && strcmp(f, "random") != 0) {
+        const char *endptr = f;
+        unsigned long seed;
+
+        seed = PyOS_strtoul((char *)f, (char **)&endptr, 10);
+
+        if (*endptr != '\0' || seed > 4294967295UL
+                || (errno == ERANGE && seed == ULONG_MAX))
+        {
+            return "WSGIPythonHashSeed must be \"random\" or an integer "
+                              "in range [0; 4294967295]";
+        }
+    }
+
+    sconfig = ap_get_module_config(cmd->server->module_config, &wsgi_module);
+    sconfig->python_hash_seed = f;
 
     return NULL;
 }
@@ -15945,6 +16037,8 @@ static const command_rec wsgi_commands[] =
         NULL, RSRC_CONF, "Python module search path."),
     AP_INIT_TAKE1("WSGIPythonEggs", wsgi_set_python_eggs,
         NULL, RSRC_CONF, "Python eggs cache directory."),
+    AP_INIT_TAKE1("WSGIPythonHashSeed", wsgi_set_python_hash_seed,
+        NULL, RSRC_CONF, "Python hash seed."),
 
 #if defined(MOD_WSGI_WITH_DAEMONS)
     AP_INIT_TAKE1("WSGIRestrictEmbedded", wsgi_set_restrict_embedded,
