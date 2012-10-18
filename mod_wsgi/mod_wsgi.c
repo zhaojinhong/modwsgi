@@ -21,6 +21,10 @@
 #include "wsgi_apache.h"
 #include "wsgi_python.h"
 
+#ifdef HAVE_SYS_PRCTL_H
+#include <sys/prctl.h>
+#endif
+
 #ifndef WIN32
 #include <pwd.h>
 #endif
@@ -10120,6 +10124,21 @@ static void wsgi_manage_process(int reason, void *data, apr_wait_t status)
                              "Process '%s' has died, deregister and "
                              "restart it.", daemon->process.pid,
                              daemon->group->name);
+
+                if (WIFEXITED(status)) {
+                    ap_log_error(APLOG_MARK, APLOG_INFO, 0,
+                             wsgi_server, "mod_wsgi (pid=%d): "
+                             "Process '%s' terminated normally, exit code %d",
+                             daemon->process.pid, daemon->group->name,
+                             WEXITSTATUS(status));
+                }
+                else if (WIFSIGNALED(status)) {
+                    ap_log_error(APLOG_MARK, APLOG_INFO, 0,
+                             wsgi_server, "mod_wsgi (pid=%d): "
+                             "Process '%s' terminated by signal %d",
+                             daemon->process.pid, daemon->group->name,
+                             WTERMSIG(status));
+                }
             }
             else {
                 ap_log_error(APLOG_MARK, APLOG_INFO, 0,
@@ -10350,6 +10369,23 @@ static void wsgi_setup_access(WSGIDaemonProcess *daemon)
                      "mod_wsgi (pid=%d): Unable to change to uid=%ld.",
                      getpid(), (long)daemon->group->uid);
     }
+
+    /*
+     * Linux prevents generation of core dumps after setuid()
+     * has been used. Attempt to reenable ability to dump core
+     * so that the CoreDumpDirectory directive still works.
+     */
+
+#if defined(HAVE_PRCTL) && defined(PR_SET_DUMPABLE)
+    /* This applies to Linux 2.4 and later. */
+    if (ap_coredumpdir_configured) {
+        if (prctl(PR_SET_DUMPABLE, 1)) {
+            ap_log_error(APLOG_MARK, APLOG_ALERT, errno, wsgi_server,
+                    "mod_wsgi (pid=%d): Set dumpable failed. This child "
+                    "will not coredump after software errors.", getpid());
+        }
+    }
+#endif
 }
 
 static int wsgi_setup_socket(WSGIProcessGroup *process)
